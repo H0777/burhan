@@ -231,7 +231,7 @@ A full manual security audit was conducted on all smart contracts. See [SECURITY
 
 ## Author
 
-**H0777** — Cybersecurity + Accounting Professional from Iraq
+**Hussein Faez** — Cybersecurity + Accounting  from Iraq
 - Focus: Fintech Security, Smart Contract Auditing, AML Compliance Systems
 - GitHub: [@H0777](https://github.com/H0777)
 
