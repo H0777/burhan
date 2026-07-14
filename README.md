@@ -4,8 +4,7 @@
 
 ![Solidity](https://img.shields.io/badge/Solidity-0.8.20-363636?style=for-the-badge&logo=solidity)
 ![Hardhat](https://img.shields.io/badge/Hardhat-2.x-yellow?style=for-the-badge&logo=ethereum)
-![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge&logo=flutter)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![React](https://img.shields.io/badge/React-18.x-61DAFB?style=for-the-badge&logo=react)![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Tests](https://img.shields.io/badge/Tests-100%25_Coverage-brightgreen?style=for-the-badge)
 ![Security](https://img.shields.io/badge/Security-Audited-red?style=for-the-badge&logo=shield)
 ![Blockchain](https://img.shields.io/badge/Blockchain-Ethereum-3C3C3D?style=for-the-badge&logo=ethereum)
