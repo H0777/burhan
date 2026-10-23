@@ -67,11 +67,11 @@
 
 **Interfaces:** `run_indexer(institution_id,chain_id,contract_version)` يقرأ bounded block ranges؛ key الحدث `(institution_id,chain_id,block_hash,transaction_hash,log_index)`؛ checkpoint يسجل canonical block number/hash؛ حالات observed/confirmed/orphaned؛ تأكيد sandbox=2، وغير sandbox من registry policy لا fallback رقمي عام.
 
-- [ ] اكتب اختبارات event مكرر، crash بين commit/checkpoint، provider rate limit، log removed، chain reorg لعدة blocks، مؤسسة أخرى على الشبكة نفسها، وعقد يطابق العنوان لكن code_hash مختلف.
-- [ ] شغّل `python -m pytest -q tests/integration/test_indexer_recovery.py` من ai-engine ضد EVM محلية تدعم snapshot/revert.
-- [ ] نفذ commit للevent وcheckpoint في transaction واحدة، backoff محدود، إعادة فحص block hashes وorphaned projection، واشتقاق tenant من registry. لا حذف تاريخ حدث فقد canonical status.
-- [ ] تحقق من restart يعيد الفهرس لنفس النتيجة ومن readiness يعرض lag؛ لا استدعاء urllib blocking داخل async handler؛ عامل العملية منفصل مع إيقاف graceful.
-- [ ] أضف runbook rebuild من snapshot واختبار مراقبة lag ثم review وcommit.
+- [x] اكتب اختبارات event مكرر، crash بين commit/checkpoint، provider rate limit، log removed، chain reorg لعدة blocks، مؤسسة أخرى على الشبكة نفسها، وعقد يطابق العنوان لكن code_hash مختلف.
+- [x] شغّل `python -m pytest -q tests/integration/test_indexer_recovery.py` من ai-engine ضد EVM محلية تدعم snapshot/revert.
+- [x] نفذ commit للevent وcheckpoint في transaction واحدة، backoff محدود، إعادة فحص block hashes وorphaned projection، واشتقاق tenant من registry. لا حذف تاريخ حدث فقد canonical status.
+- [x] تحقق من restart يعيد الفهرس لنفس النتيجة ومن readiness يعرض lag؛ لا استدعاء urllib blocking داخل async handler؛ عامل العملية منفصل مع إيقاف graceful.
+- [x] أضف runbook rebuild من snapshot واختبار مراقبة lag ثم review وcommit.
 
 **القبول:** إعادة المعالجة لا تضاعف المعاملة/التنبيه؛ قرار on-chain نهائي لا يظهر بناء على log orphaned.
 

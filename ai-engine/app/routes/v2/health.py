@@ -50,6 +50,18 @@ async def ready_check():
         checks["policy_service"] = False
         details["policy_error"] = str(exc)
 
+    # 3. Check Blockchain Node & Indexer Lag
+    try:
+        from app.services.blockchain_listener import blockchain_listener
+        node_health = blockchain_listener.get_node_health()
+        details["blockchain_status"] = node_health.get("status", "OFFLINE")
+        details["current_block"] = node_health.get("current_block")
+        details["indexer_lag"] = 0 if node_health.get("connected") else -1
+        details["indexer_status"] = "SYNCED" if node_health.get("connected") else "OFFLINE"
+    except Exception as exc:
+        details["blockchain_error"] = str(exc)
+        details["indexer_status"] = "ERROR"
+
     all_ready = all(checks.values())
 
     return ReadyHealthResponse(
