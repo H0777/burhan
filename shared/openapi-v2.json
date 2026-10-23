@@ -1027,6 +1027,80 @@
         "title": "LiveHealthResponse",
         "type": "object"
       },
+      "NarrativeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "case_description": {
+            "default": "",
+            "title": "Case Description",
+            "type": "string"
+          },
+          "case_title": {
+            "minLength": 1,
+            "title": "Case Title",
+            "type": "string"
+          },
+          "enable_cloud": {
+            "default": false,
+            "description": "Explicit opt-in to cloud generative models",
+            "title": "Enable Cloud",
+            "type": "boolean"
+          },
+          "evidence_descriptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Descriptions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case_title"
+        ],
+        "title": "NarrativeRequest",
+        "type": "object"
+      },
+      "NarrativeResult": {
+        "properties": {
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "is_cloud_generated": {
+            "title": "Is Cloud Generated",
+            "type": "boolean"
+          },
+          "narrative": {
+            "title": "Narrative",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "redaction_summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Redaction Summary",
+            "type": "object"
+          },
+          "sanitized": {
+            "title": "Sanitized",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "narrative",
+          "engine",
+          "provider",
+          "is_cloud_generated",
+          "sanitized",
+          "redaction_summary"
+        ],
+        "title": "NarrativeResult",
+        "type": "object"
+      },
       "OperatorMetricsPayload": {
         "properties": {
           "after_hours_count": {
@@ -1418,6 +1492,110 @@
         ],
         "title": "RoleEnum",
         "type": "string"
+      },
+      "ScanFinding": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "matched_snippet": {
+            "title": "Matched Snippet",
+            "type": "string"
+          },
+          "remediation": {
+            "title": "Remediation",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "vulnerability_type": {
+            "title": "Vulnerability Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vulnerability_type",
+          "severity",
+          "line_number",
+          "matched_snippet",
+          "description",
+          "remediation"
+        ],
+        "title": "ScanFinding",
+        "type": "object"
+      },
+      "ScanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "patterns",
+            "description": "Scanner mode: 'patterns'",
+            "title": "Mode",
+            "type": "string"
+          },
+          "source_code": {
+            "description": "Solidity contract source code",
+            "minLength": 1,
+            "title": "Source Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_code"
+        ],
+        "title": "ScanRequest",
+        "type": "object"
+      },
+      "ScanResult": {
+        "properties": {
+          "code_size_bytes": {
+            "title": "Code Size Bytes",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ScanFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_lines": {
+            "title": "Total Lines",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engine",
+          "code_size_bytes",
+          "total_lines",
+          "findings",
+          "status",
+          "limitations"
+        ],
+        "title": "ScanResult",
+        "type": "object"
       },
       "SnapshotInfo": {
         "additionalProperties": false,
@@ -3207,6 +3385,124 @@
         "summary": "Preview transaction risk score in simulation mode without persisting",
         "tags": [
           "Risk V2"
+        ]
+      }
+    },
+    "/api/v2/scanner/narrative": {
+      "post": {
+        "operationId": "generate_narrative_endpoint_api_v2_scanner_narrative_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NarrativeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NarrativeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate privacy-redacted narrative summary for forensic investigation",
+        "tags": [
+          "Scanner V2"
+        ]
+      }
+    },
+    "/api/v2/scanner/scan": {
+      "post": {
+        "operationId": "scan_contract_endpoint_api_v2_scanner_scan_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scan Solidity smart contract for security anti-patterns with honest limitations",
+        "tags": [
+          "Scanner V2"
         ]
       }
     },

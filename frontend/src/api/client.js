@@ -362,6 +362,45 @@ export class ApiV2Client {
   getCaseReportExportUrl(caseId, reportId) {
     return `${this.baseUrl}/api/v2/cases/${encodeURIComponent(caseId)}/reports/${encodeURIComponent(reportId)}/export`
   }
+
+  /**
+   * Scan smart contract with honest limitations.
+   * @param {string} sourceCode
+   * @param {Object} [options]
+   * @param {string} [options.mode='patterns']
+   * @param {string|null} [options.token=null]
+   */
+  async scanContract(sourceCode, { mode = 'patterns', token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request('/api/v2/scanner/scan', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ source_code: sourceCode, mode })
+    })
+  }
+
+  /**
+   * Generate privacy-redacted narrative summary.
+   * @param {string} caseTitle
+   * @param {Object} [options]
+   * @param {string} [options.caseDescription='']
+   * @param {string[]} [options.evidenceDescriptions=[]]
+   * @param {boolean} [options.enableCloud=false]
+   * @param {string|null} [options.token=null]
+   */
+  async generateNarrative(caseTitle, { caseDescription = '', evidenceDescriptions = [], enableCloud = false, token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request('/api/v2/scanner/narrative', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        case_title: caseTitle,
+        case_description: caseDescription,
+        evidence_descriptions: evidenceDescriptions,
+        enable_cloud: enableCloud
+      })
+    })
+  }
 }
 
 // Default singleton instance

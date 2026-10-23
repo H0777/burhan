@@ -19,6 +19,7 @@ from app.routes.v2 import identity as identity_v2
 from app.routes.v2 import transactions as transactions_v2
 from app.routes.v2 import risk as risk_v2
 from app.routes.v2 import reports as reports_v2
+from app.routes.v2 import scanner as scanner_v2
 from app.config import settings
 
 
@@ -72,6 +73,7 @@ app.include_router(transactions_v2.router, prefix="/api/v2/transactions", tags=[
 app.include_router(transactions_v2.imports_router, prefix="/api/v2/imports", tags=["Imports V2"])
 app.include_router(risk_v2.router, prefix="/api/v2/risk", tags=["Risk V2"])
 app.include_router(reports_v2.router, prefix="/api/v2", tags=["Reports V2"])
+app.include_router(scanner_v2.router, prefix="/api/v2/scanner", tags=["Scanner V2"])
 
 
 @app.get("/api/v1/health", tags=["System"])

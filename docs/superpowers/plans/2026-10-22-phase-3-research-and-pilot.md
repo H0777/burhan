@@ -97,11 +97,11 @@
 
 **Interfaces:** `scan(code,mode='patterns')->ScanResult{engine,coverage,findings,limitations}`؛ `generate_narrative(redacted_context,provider_config)->NarrativeResult` دون integrity flag؛ provider/model configurable بقائمة تم التحقق من دعمها عند التنفيذ، API key لكل مؤسسة لا في URL logs.
 
-- [ ] اختبر تعليقاً يحتوي tx.origin، كوداً طويلاً فوق200KB، نمطاً غير مدعوم، provider404/timeout، JSON مخالف، instruction داخل دليل، وتفعيل cloud لمؤسسة لا يفعلها لأخرى.
-- [ ] شغّل من ai-engine `python -m pytest -q tests/test_scanner_modes.py tests/test_llm_privacy.py` ثم نفذ timeout/size limits وتنقيحاً وopt-in؛ patterns لا يُسمى AST أو تدقيقاً أمنياً معتمداً.
-- [ ] أي AST mode فعلي يضيف parser/scanner مثبت الإصدار بعملية مقيدة ولا ينفذ code المرفوع؛ غيابه يعيد unsupported ولا secure.
-- [ ] أثبت باختبار أن LLM لا يغير status الدليل/صلاحيات/قرار مالي، وأن السياق المرسل منقح ومسجل metadata دون محتوى حساس.
-- [ ] راجع labels والوصف وحدّث مسودة البحث بالقدرات الحقيقية ثم commit.
+- [x] اختبر تعليقاً يحتوي tx.origin، كوداً طويلاً فوق200KB، نمطاً غير مدعوم، provider404/timeout، JSON مخالف، instruction داخل دليل، وتفعيل cloud لمؤسسة لا يفعلها لأخرى.
+- [x] شغّل من ai-engine `python -m pytest -q tests/test_scanner_modes.py tests/test_llm_privacy.py` ثم نفذ timeout/size limits وتنقيحاً وopt-in؛ patterns لا يُسمى AST أو تدقيقاً أمنياً معتمداً.
+- [x] أي AST mode فعلي يضيف parser/scanner مثبت الإصدار بعملية مقيدة ولا ينفذ code المرفوع؛ غيابه يعيد unsupported ولا secure.
+- [x] أثبت باختبار أن LLM لا يغير status الدليل/صلاحيات/قرار مالي، وأن السياق المرسل منقح ومسجل metadata دون محتوى حساس.
+- [x] راجع labels والوصف وحدّث مسودة البحث بالقدرات الحقيقية ثم commit.
 
 **القبول:** G3/A بدليل تجارب وتقارير ومحركات معلنة؛ external cloud test اختياري بإذن الجهة المالكة، لا API call حقيقي مطلوب لاختبار الخصوصية الأساسي.
 
