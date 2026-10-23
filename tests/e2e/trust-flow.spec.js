@@ -402,6 +402,63 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
     );
   });
 
+  test("1.5 Banking CSV Ingestion and Read Model Queries", async ({ request }) => {
+    // 1. Read demo CBI IQD banking CSV fixture
+    const csvPath = path.join(ROOT_DIR, "shared", "fixtures", "banking-iqd-demo.csv");
+    expect(fs.existsSync(csvPath)).toBe(true);
+    const csvBuffer = fs.readFileSync(csvPath);
+
+    // 2. Upload CSV via POST /api/v2/imports/transactions
+    const uploadRes = await request.post("/api/v2/imports/transactions", {
+      multipart: {
+        file: {
+          name: "banking-iqd-demo.csv",
+          mimeType: "text/csv",
+          buffer: csvBuffer,
+        },
+      },
+    });
+
+    expect([200, 201]).toContain(uploadRes.status());
+    const uploadData = await uploadRes.json();
+    expect(uploadData.status).toBe("COMPLETED");
+    expect(uploadData.total_rows).toBe(10);
+    expect(uploadData.accepted_rows).toBe(10);
+    expect(uploadData.rejected_rows).toBe(0);
+    expect(uploadData.errors.length).toBe(0);
+
+    // 3. Query indexed transactions via GET /api/v2/transactions
+    const listRes = await request.get("/api/v2/transactions?source=IQD_CSV&currency=IQD&limit=50");
+    expect(listRes.status()).toBe(200);
+    const listData = await listRes.json();
+
+    expect(listData.items.length).toBeGreaterThanOrEqual(10);
+    const sampleTx = listData.items.find((tx) => tx.external_id === "TX-IQD-2026-0001");
+    expect(sampleTx).toBeDefined();
+    expect(sampleTx.currency).toBe("IQD");
+    expect(sampleTx.scale).toBe(3);
+    expect(sampleTx.amount_minor).toBe(15000000000); // 15,000,000 IQD in minor units (scale 3)
+    expect(sampleTx.sender_ref).toBe("ACC-BAGHDAD-101");
+    expect(sampleTx.receiver_ref).toBe("ACC-BASRA-202");
+
+    // 4. Idempotency test: Re-uploading identical CSV does not duplicate transactions
+    const reuploadRes = await request.post("/api/v2/imports/transactions", {
+      multipart: {
+        file: {
+          name: "banking-iqd-demo.csv",
+          mimeType: "text/csv",
+          buffer: csvBuffer,
+        },
+      },
+    });
+    expect([200, 201]).toContain(reuploadRes.status());
+    const reuploadData = await reuploadRes.json();
+    expect(reuploadData.status).toBe("COMPLETED");
+    // All 10 existing rows should be skipped idempotently
+    expect(reuploadData.accepted_rows).toBe(0);
+    expect(reuploadData.rejected_rows).toBe(0);
+  });
+
   // -------------------------------------------------------------
   // Group 2: Resilience and Negative Security Tests
   // -------------------------------------------------------------

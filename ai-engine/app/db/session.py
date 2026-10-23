@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.engine import Engine
 
 from app.config import settings
-from app.db.models import Base, generate_rls_sql
+from app.db.models import Base, Institution, generate_rls_sql
 
 _engine: Optional[Engine] = None
 _session_factory: Optional[sessionmaker] = None
@@ -66,7 +66,7 @@ def get_session_factory(engine: Optional[Engine] = None) -> sessionmaker:
 
 def init_db(engine: Optional[Engine] = None) -> None:
     """
-    Initializes database tables and applies RLS policies if PostgreSQL.
+    Initializes database tables, seeds default demo institution, and applies RLS policies if PostgreSQL.
     """
     eng = engine or get_engine()
     Base.metadata.create_all(bind=eng)
@@ -75,6 +75,20 @@ def init_db(engine: Optional[Engine] = None) -> None:
             for sql in generate_rls_sql():
                 conn.execute(text(sql))
             conn.commit()
+
+    # Ensure default institution exists for development and testing
+    session_factory = get_session_factory(eng)
+    with session_factory() as session:
+        default_inst = session.get(Institution, settings.INSTITUTION_ID)
+        if not default_inst:
+            session.add(
+                Institution(
+                    id=settings.INSTITUTION_ID,
+                    name="Central Bank of Iraq (CBI) Demo Institution",
+                    is_active=True,
+                )
+            )
+            session.commit()
 
 
 @contextmanager

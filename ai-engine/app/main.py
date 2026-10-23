@@ -16,6 +16,7 @@ from app.routes.v2 import cases as cases_v2
 from app.routes.v2 import policies as policies_v2
 from app.routes.v2 import health as health_v2
 from app.routes.v2 import identity as identity_v2
+from app.routes.v2 import transactions as transactions_v2
 from app.config import settings
 
 
@@ -25,6 +26,12 @@ async def lifespan(app: FastAPI):
     print("[AI-Engine] AI Engine starting...")
     print(f"   Mode: {'API + Local' if settings.GEMINI_API_KEY else 'Local Only'}")
     print(f"   Model: {settings.LOCAL_MODEL_PATH}")
+    from app.db.session import init_db
+    try:
+        init_db()
+        print("[AI-Engine] Database schema initialized.")
+    except Exception as e:
+        print(f"[AI-Engine] Database initialization note: {e}")
     yield
     print("[AI-Engine] AI Engine shutting down...")
 
@@ -59,6 +66,8 @@ app.include_router(cases_v2.router, prefix="/api/v2/cases", tags=["Cases V2"])
 app.include_router(policies_v2.router, prefix="/api/v2/policies", tags=["Policies V2"])
 app.include_router(health_v2.router, prefix="/api/v2/health", tags=["Health V2"])
 app.include_router(identity_v2.router, prefix="/api/v2", tags=["Identity & Wallet V2"])
+app.include_router(transactions_v2.router, prefix="/api/v2/transactions", tags=["Transactions V2"])
+app.include_router(transactions_v2.imports_router, prefix="/api/v2/imports", tags=["Imports V2"])
 
 
 @app.get("/api/v1/health", tags=["System"])

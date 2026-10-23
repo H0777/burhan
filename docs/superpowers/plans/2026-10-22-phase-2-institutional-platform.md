@@ -33,11 +33,11 @@
 
 **Interfaces:** `get_current_identity() -> Identity{issuer,sub,institution_id,participant_id,permissions}`؛ `POST /api/v2/wallet/challenge` و`/wallet/verify`؛ challenge أحادي الاستعمال domain/chain/sub/institution/expiry=5min. التخزين الأول fixture repository interface في الاختبارات، ويستبدل بمعاملات T14 قبل دمج G2. `RoleManager.getParticipant(address)` في العقد يرجع participant_id/authorization_generation/role حسب T03؛ تحديثه عبر الحوكمة نفسها.
 
-- [ ] اكتب اختبارات invalid issuer/audience/signature/expiry، replay challenge، wallet لمؤسسة أخرى، token بعد إنهاء العضوية، وتغيير wallet يرفع generation ويبطل الصوت السابق حتى لو أعيد الدور.
-- [ ] شغّل من ai-engine `python -m pytest -q tests/test_identity.py`؛ أثبت الفشل، ثم نفذ OIDC مكتبة معتمدة لا parser توقيع منزلي؛ cache مفاتيح متجددة بمدة محدودة.
-- [ ] أضف frontend تسجيل دخول وخروج وفشل/انتهاء جلسة وربط محفظة دون تخزين مفاتيح خاصة. لا role من claim غير mapped، ولا تسجيل participant من wallet challenge دون عملية enrollment مخولة.
-- [ ] اختبر integration بمزود OIDC اختباري حقيقي وخادم JWKS، إضافة إلى unit mocks، ثم `npm --prefix frontend test -- --run src/auth/AuthProvider.test.jsx`؛ بيئة الاختبار لا تعطل التحقق في institutional.
-- [ ] وثق trust boundary وإجراء الانضمام/التعطيل/تدوير المحفظة ثم review وcommit.
+- [x] اكتب اختبارات invalid issuer/audience/signature/expiry، replay challenge، wallet لمؤسسة أخرى، token بعد إنهاء العضوية، وتغيير wallet يرفع generation ويبطل الصوت السابق حتى لو أعيد الدور.
+- [x] شغّل من ai-engine `python -m pytest -q tests/test_identity.py`؛ أثبت الفشل، ثم نفذ OIDC مكتبة معتمدة لا parser توقيع منزلي؛ cache مفاتيح متجددة بمدة محدودة.
+- [x] أضف frontend تسجيل دخول وخروج وفشل/انتهاء جلسة وربط محفظة دون تخزين مفاتيح خاصة. لا role من claim غير mapped، ولا تسجيل participant من wallet challenge دون عملية enrollment مخولة.
+- [x] اختبر integration بمزود OIDC اختباري حقيقي وخادم JWKS، إضافة إلى unit mocks، ثم `npm --prefix frontend test -- --run src/auth/AuthProvider.test.jsx`؛ بيئة الاختبار لا تعطل التحقق في institutional.
+- [x] وثق trust boundary وإجراء الانضمام/التعطيل/تدوير المحفظة ثم review وcommit.
 
 **القبول:** G2 يربط جلسة المؤسسة ومحفظتها ودور العقد دون قفزة صلاحيات؛ endpoint غير مصادق يعيد 401 وغير مخول 403/404 وفق سياسة منع كشف الموارد.
 
@@ -99,10 +99,10 @@
 
 **Interfaces:** `POST /api/v2/imports/transactions` stream CSV بأعمدة external_id,occurred_at,sender_ref,receiver_ref,currency,scale,amount_minor؛ key `(institution_id,source,external_id)`؛ سجل import id/status/accepted/rejected مع errors لا تحتوي PII. GET `/api/v2/transactions` pagination/filters؛ ETH يأتي من indexer، IQD من connector؛ origin_source محفوظ.
 
-- [ ] اختبر CSV مكرر ومجزأ، صيغة مبالغ/scale/عملة غير صحيحة، timestamp بلا timezone، ملف ضخم، row تالفة، external_id متكرر ببيانات مختلفة، ومؤسسة تتلاعب بمعرف مصدر غيرها.
-- [ ] شغّل `python -m pytest -q tests/integration/test_transaction_import.py` ثم نفذ parser متدفقاً وحدود50000row/ملف؛ row conflicts ترفض وتبلغ، ولا يستبدل مصدر قديم صامتاً.
-- [ ] اربط dashboard بقراءة صفحات فعلية وفلاتر server-side وإجماليات مفهرسة؛ لا جلب كل txId ثم N استدعاءات لكل refresh؛ مصدر السجل والعملة ظاهران.
-- [ ] نفذ E2E استيراد IQD تجريبي ومتابعة EVM منفصلة، restart واستكمال؛ المصدر المصرفي يثبت ورود سجل فقط، ولا يثبت تسوية نقدية أو دقة إدخال العميل.
-- [ ] دوّن دليل G2 بجلسات مؤسستين وملف استيراد وقرارات وأدلة ثابتة، ثم review وcommit.
+- [x] اختبر CSV مكرر ومجزأ، صيغة مبالغ/scale/عملة غير صحيحة، timestamp بلا timezone، ملف ضخم، row تالفة، external_id متكرر ببيانات مختلفة، ومؤسسة تتلاعب بمعرف مصدر غيرها.
+- [x] شغّل `python -m pytest -q tests/integration/test_transaction_import.py` ثم نفذ parser متدفقاً وحدود50000row/ملف؛ row conflicts ترفض وتبلغ، ولا يستبدل مصدر قديم صامتاً.
+- [x] اربط dashboard بقراءة صفحات فعلية وفلاتر server-side وإجماليات مفهرسة؛ لا جلب كل txId ثم N استدعاءات لكل refresh؛ مصدر السجل والعملة ظاهران.
+- [x] نفذ E2E استيراد IQD تجريبي ومتابعة EVM منفصلة، restart واستكمال؛ المصدر المصرفي يثبت ورود سجل فقط، ولا يثبت تسوية نقدية أو دقة إدخال العميل.
+- [x] دوّن دليل G2 بجلسات مؤسستين وملف استيراد وقرارات وأدلة ثابتة، ثم review وcommit.
 
 **القبول:** اجتياز G2، وبدء T18 بمصدر مزايا خادمي حقيقي؛ لا تقييم مؤسسي من حقول مخاطر يختارها المتصفح.

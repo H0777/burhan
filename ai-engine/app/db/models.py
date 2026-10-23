@@ -232,6 +232,26 @@ class TransactionRecord(Base):
     )
 
 
+class ImportBatchRecord(Base):
+    __tablename__ = "import_batches"
+
+    id = Column(String(64), primary_key=True)
+    institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    source = Column(String(32), nullable=False, default="IQD_CSV")
+    filename = Column(String(255), nullable=False)
+    status = Column(String(32), nullable=False, default="COMPLETED")
+    total_rows = Column(Integer, nullable=False, default=0)
+    accepted_rows = Column(Integer, nullable=False, default=0)
+    rejected_rows = Column(Integer, nullable=False, default=0)
+    errors_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("ix_import_inst_created", "institution_id", "created_at"),
+    )
+
+
+
 class PolicyVersionRecord(Base):
     __tablename__ = "policy_versions"
 
@@ -317,6 +337,7 @@ RLS_TABLES = [
     "outbox",
     "idempotency_keys",
     "transactions",
+    "import_batches",
     "policy_versions",
     "assessments",
     "chain_events",

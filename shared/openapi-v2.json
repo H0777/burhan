@@ -90,6 +90,20 @@
         "title": "BatchScoreRequest",
         "type": "object"
       },
+      "Body_import_banking_transactions_api_v2_imports_transactions_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_banking_transactions_api_v2_imports_transactions_post",
+        "type": "object"
+      },
       "Body_upload_case_evidence_api_v2_cases__case_id__evidence_post": {
         "properties": {
           "file": {
@@ -1117,6 +1131,124 @@
         "title": "SnapshotInfo",
         "type": "object"
       },
+      "TransactionImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_rows": {
+            "title": "Accepted Rows",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionImportRowError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "import_id": {
+            "title": "Import Id",
+            "type": "string"
+          },
+          "institution_id": {
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "rejected_rows": {
+            "title": "Rejected Rows",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_rows": {
+            "title": "Total Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "import_id",
+          "institution_id",
+          "filename",
+          "status",
+          "total_rows",
+          "accepted_rows",
+          "rejected_rows",
+          "errors",
+          "created_at"
+        ],
+        "title": "TransactionImportResponse",
+        "type": "object"
+      },
+      "TransactionImportRowError": {
+        "additionalProperties": false,
+        "properties": {
+          "error_code": {
+            "description": "Standardized error code (e.g. MISSING_TIMEZONE, INVALID_AMOUNT)",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "message": {
+            "description": "Sanitized, non-PII explanation of validation failure",
+            "title": "Message",
+            "type": "string"
+          },
+          "row_index": {
+            "description": "1-indexed row number in the CSV file",
+            "title": "Row Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "row_index",
+          "error_code",
+          "message"
+        ],
+        "title": "TransactionImportRowError",
+        "type": "object"
+      },
+      "TransactionListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "TransactionListResponse",
+        "type": "object"
+      },
       "TransactionPayload": {
         "properties": {
           "amount": {
@@ -1208,6 +1340,88 @@
           "amount"
         ],
         "title": "TransactionPayload",
+        "type": "object"
+      },
+      "TransactionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_minor": {
+            "title": "Amount Minor",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "external_id": {
+            "title": "External Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "institution_id": {
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "receiver_ref": {
+            "title": "Receiver Ref",
+            "type": "string"
+          },
+          "risk_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Score"
+          },
+          "scale": {
+            "title": "Scale",
+            "type": "integer"
+          },
+          "sender_ref": {
+            "title": "Sender Ref",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "institution_id",
+          "source",
+          "external_id",
+          "occurred_at",
+          "sender_ref",
+          "receiver_ref",
+          "currency",
+          "scale",
+          "amount_minor",
+          "status",
+          "created_at"
+        ],
+        "title": "TransactionResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -2109,6 +2323,77 @@
         ]
       }
     },
+    "/api/v2/imports/transactions": {
+      "post": {
+        "operationId": "import_banking_transactions_api_v2_imports_transactions_post",
+        "parameters": [
+          {
+            "description": "Transaction origin source identifier",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "default": "IQD_CSV",
+              "description": "Transaction origin source identifier",
+              "title": "Source",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_banking_transactions_api_v2_imports_transactions_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream import banking CSV transactions",
+        "tags": [
+          "Imports V2"
+        ]
+      }
+    },
     "/api/v2/policies/active": {
       "get": {
         "description": "Returns the authoritative active AML/KYC policy version and minor-unit thresholds\nfor the requested asset and institutional scope.",
@@ -2170,6 +2455,121 @@
         "summary": "Get active compliance policy",
         "tags": [
           "Policies V2"
+        ]
+      }
+    },
+    "/api/v2/transactions": {
+      "get": {
+        "operationId": "list_transactions_api_v2_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Pagination cursor (transaction ID)",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Pagination cursor (transaction ID)",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Filter by source (IQD_CSV, EVM, MANUAL)",
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by source (IQD_CSV, EVM, MANUAL)",
+              "title": "Source"
+            }
+          },
+          {
+            "description": "Filter by currency (IQD, ETH, USD)",
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by currency (IQD, ETH, USD)",
+              "title": "Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get paginated indexed transactions for institution",
+        "tags": [
+          "Transactions V2"
         ]
       }
     },

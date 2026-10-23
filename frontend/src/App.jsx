@@ -62,6 +62,7 @@ export default function App() {
     injectTransaction,
     injectForensicEntry,
     resetDemoState,
+    importBankingCSV,
   } = useAuditEngine()
 
   // App & Language State (Default Arabic for Iraqi Banking & Judicial Context)
@@ -416,6 +417,7 @@ export default function App() {
               onClear={handleClear}
               loading={loading}
               onNavigate={setCurrentView}
+              onImportCSV={importBankingCSV}
               t={t}
               isRtl={isRtl}
             />

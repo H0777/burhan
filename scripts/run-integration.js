@@ -95,6 +95,14 @@ async function main() {
   console.log('Starting G1 Trust Flow End-to-End Integration Runner');
   console.log('====================================================');
 
+  // Ensure clean test database for reproducible integration run
+  const testDbPath = path.join(ROOT_DIR, 'test-results', 'integration.db');
+  if (fs.existsSync(testDbPath)) {
+    try {
+      fs.unlinkSync(testDbPath);
+    } catch {}
+  }
+
   // 1. Check or start Hardhat Node
   const rpcRunning = await checkRpc(RPC_PORT);
   if (!rpcRunning) {
@@ -160,6 +168,7 @@ async function main() {
           PYTHONPATH: path.join(ROOT_DIR, 'ai-engine'),
           INSTITUTION_ID: 'INST-CENTRAL-DEMO',
           BLOCKCHAIN_RPC_URL: `http://127.0.0.1:${RPC_PORT}`,
+          DATABASE_URL: process.env.DATABASE_URL || `sqlite:///${path.join(ROOT_DIR, 'test-results', 'integration.db').replace(/\\/g, '/')}`,
           PYTHONIOENCODING: 'utf-8',
           PYTHONUTF8: '1',
         },

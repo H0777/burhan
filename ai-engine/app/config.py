@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     BUSINESS_HOUR_END: int = 17
 
     # Database & Multi-Tenant Persistence (T14)
-    DATABASE_URL: str = "postgresql+psycopg://cyber_audit_app:cyber_audit_secure_pass@localhost:5432/cyber_audit_chain"
+    DATABASE_URL: str = "sqlite:///./cyber_audit_chain.db"
     DATABASE_ECHO: bool = False
     
     # Evidence Vault Object Storage (T14)

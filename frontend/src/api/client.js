@@ -201,6 +201,55 @@ export class ApiV2Client {
     }
     return data
   }
+
+  /**
+   * List indexed transactions with server-side pagination and filters.
+   * @param {Object} options
+   * @param {number} [options.limit=50]
+   * @param {string|null} [options.cursor=null]
+   * @param {string|null} [options.source=null]
+   * @param {string|null} [options.currency=null]
+   * @param {string|null} [options.token=null]
+   */
+  async listTransactions({ limit = 50, cursor = null, source = null, currency = null, token = null } = {}) {
+    const params = new URLSearchParams()
+    if (limit) params.append('limit', String(limit))
+    if (cursor) params.append('cursor', cursor)
+    if (source) params.append('source', source)
+    if (currency) params.append('currency', currency)
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/transactions${qs}`, { method: 'GET', headers })
+  }
+
+  /**
+   * Stream import banking transactions CSV.
+   * @param {File|Blob} file
+   * @param {Object} options
+   * @param {string} [options.source='IQD_CSV']
+   * @param {string|null} [options.token=null]
+   */
+  async importTransactions(file, { source = 'IQD_CSV', token = null } = {}) {
+    const url = `${this.baseUrl}/api/v2/imports/transactions?source=${encodeURIComponent(source)}`
+    const formData = new FormData()
+    formData.append('file', file)
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      const err = new Error(data.detail || `Import failed with status ${response.status}`)
+      err.status = response.status
+      err.body = data
+      throw err
+    }
+    return data
+  }
 }
 
 // Default singleton instance

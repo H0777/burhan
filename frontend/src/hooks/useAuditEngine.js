@@ -11,6 +11,7 @@ import {
   CONTRACT_ADDRESSES,
 } from '../utils/contract'
 import { isInstitutionalMode } from '../config/runtime'
+import { apiV2Client } from '../api/client'
 
 const ROLE_NAMES = ['NONE', 'SUPER_ADMIN', 'AUDITOR', 'OPERATOR', 'REGULATOR']
 
@@ -156,24 +157,58 @@ export function useAuditEngine() {
       const dailyLimit = await auditEngine.dailyVolumeLimit().catch(() => 50000000000000000000000n)
       const isPaused = await auditEngine.isPaused().catch(() => false)
 
-      const parsedTxs = []
-      for (const id of txIds) {
-        try {
-          const tx = await auditEngine.getTransaction(id)
-          parsedTxs.push({
-            id: Number(tx.id),
-            sender: tx.sender,
-            receiver: tx.receiver,
-            amount: formatAmount(tx.amount),
-            timestamp: Number(tx.timestamp),
-            isFlagged: tx.isFlagged,
-            flagReason: tx.flagReason,
-            status: Number(tx.status),
-            riskScore: tx.isFlagged ? 85.0 : 15.0,
-            riskTier: tx.isFlagged ? 'HIGH' : 'LOW',
-          })
-        } catch (e) {
-          console.warn('Error fetching tx', id, e)
+      // 1. Attempt to fetch indexed transactions from V2 API (single indexed query)
+      let parsedTxs = []
+      try {
+        const v2Resp = await apiV2Client.listTransactions({ limit: 50 })
+        if (v2Resp && v2Resp.items && v2Resp.items.length > 0) {
+          parsedTxs = v2Resp.items.map((tx) => ({
+            id: tx.external_id || tx.id,
+            sender: tx.sender_ref,
+            receiver: tx.receiver_ref,
+            amount:
+              tx.currency === 'ETH'
+                ? (Number(tx.amount_minor) / 1e18).toFixed(4)
+                : (Number(tx.amount_minor) / Math.pow(10, tx.scale || 0)).toFixed(Math.min(tx.scale || 0, 4)),
+            currency: tx.currency || 'IQD',
+            source: tx.source || 'IQD_CSV',
+            scale: tx.scale || 0,
+            amount_minor: tx.amount_minor,
+            timestamp: Math.floor(new Date(tx.occurred_at).getTime() / 1000),
+            isFlagged: tx.status === 'FLAGGED' || (tx.risk_score && tx.risk_score >= 70),
+            flagReason: tx.risk_score && tx.risk_score >= 70 ? 'High risk AML score flagged by engine' : '',
+            status: tx.status === 'CLEARED' ? 1 : tx.status === 'FLAGGED' ? 2 : tx.status === 'BLOCKED' ? 3 : 0,
+            riskScore: tx.risk_score || (tx.status === 'FLAGGED' ? 85.0 : 15.0),
+            riskTier: tx.risk_score >= 80 ? 'CRITICAL' : tx.risk_score >= 60 ? 'HIGH' : tx.risk_score >= 30 ? 'MEDIUM' : 'LOW',
+          }))
+        }
+      } catch (_e) {
+        // Fallback to on-chain querying
+      }
+
+      // 2. Fallback to on-chain querying if V2 returned no indexed items
+      if (parsedTxs.length === 0) {
+        for (const id of txIds) {
+          try {
+            const tx = await auditEngine.getTransaction(id)
+            parsedTxs.push({
+              id: Number(tx.id),
+              sender: tx.sender,
+              receiver: tx.receiver,
+              amount: formatAmount(tx.amount),
+              currency: 'ETH',
+              source: 'EVM',
+              scale: 18,
+              timestamp: Number(tx.timestamp),
+              isFlagged: tx.isFlagged,
+              flagReason: tx.flagReason,
+              status: Number(tx.status),
+              riskScore: tx.isFlagged ? 85.0 : 15.0,
+              riskTier: tx.isFlagged ? 'HIGH' : 'LOW',
+            })
+          } catch (e) {
+            console.warn('Error fetching tx', id, e)
+          }
         }
       }
 
@@ -471,6 +506,24 @@ export function useAuditEngine() {
     })
   }, [])
 
+  const importBankingCSV = useCallback(
+    async (file, source = 'IQD_CSV') => {
+      setLoading(true)
+      setError(null)
+      try {
+        const resp = await apiV2Client.importTransactions(file, { source })
+        await fetchContractData()
+        return resp
+      } catch (err) {
+        setError(err.message || 'Failed to import banking CSV')
+        throw err
+      } finally {
+        setLoading(false)
+      }
+    },
+    [fetchContractData]
+  )
+
   return {
     account,
     userRole,
@@ -492,5 +545,6 @@ export function useAuditEngine() {
     injectTransaction,
     injectForensicEntry,
     resetDemoState,
+    importBankingCSV,
   }
 }

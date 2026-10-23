@@ -46,5 +46,23 @@ Task 16: complete
 - FastAPI V2 routes (`POST /api/v2/cases`, `GET /api/v2/cases`, `GET /api/v2/cases/{id}`, `POST /api/v2/cases/{id}/transition`, `POST /api/v2/cases/{id}/evidence`)
 - Frontend `CaseWorkspace.jsx` component with Arabic/English bilingual layout, persona switcher for Four-Eyes testing, case creation modal, action buttons dynamically enabled per role/status, and immutable event timeline
 - Unit and integration tests: Python `test_case_workflow.py` (7/7 passed), Vitest `CaseWorkspace.test.jsx` (5/5 passed), and full `verify:all` passing with code 0
-Task 17: not started
+Task 17: complete
+- Standard CBI IQD CSV streaming parser (`CsvImportConnector`) supporting up to 50,000 rows with 413 payload rejection
+- Strict timezone verification (rejects missing timezone with MISSING_TIMEZONE) and positive integer minor units scale 3 enforcement
+- Non-PII standardized row-level validation errors (1-indexed)
+- Conflict detection on `(institution_id, source, external_id)`: idempotent skip on identical data; 409 rejection on conflicting data without silent overwriting
+- Database model `ImportBatchRecord` added with RLS isolation across institutions
+- Single-query indexed pagination endpoint (`GET /api/v2/transactions`) with source, currency, limit, and cursor filters
+- Streaming import endpoint (`POST /api/v2/imports/transactions`) with REGULATOR role write-blocking
+- Frontend `client.js` methods (`listTransactions`, `importTransactions`), hook `useAuditEngine.js` indexed fetching and `importBankingCSV`, and `Dashboard.jsx` CSV upload and legal disclaimer banner
+- Tests: Python `test_transaction_import.py` (8/8 passed), Playwright E2E test `1.5 Banking CSV Ingestion and Read Model Queries` passed in live integration runner
+- Full test suite `npm run verify:all` passing with exit code 0
+
+Gate G2: PASSED
+- Multi-tenant relational isolation certified under PostgreSQL RLS & composite keys
+- EIP-4361 SIWE challenge and EVM wallet binding with authorization generation
+- WORM Evidence vault and reorg-resilient indexing worker
+- Institutional case lifecycle with strict Four-Eyes governance (no self-approval)
+- Streaming banking CSV import and indexed read model
+- Verified by docs/verification/g2-institutional.md and docs/gates/g2-institutional-acceptance.md
 
