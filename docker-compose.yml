@@ -1,0 +1,89 @@
+name: cyber-audit-system
+
+services:
+  # 1. Local Hardhat Blockchain Node (Isolated port 8545)
+  hardhat-node:
+    image: node:20-alpine
+    container_name: cyber_audit_evm
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    ports:
+      - "${RPC_PORT:-8545}:8545"
+    command: sh -c "npm install && npx hardhat node --hostname 0.0.0.0"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8545"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cyber_audit_isolated_net
+
+  # 2. Automated Contract Deployment & Bootstrap
+  contract-deployer:
+    image: node:20-alpine
+    container_name: cyber_audit_deployer
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    environment:
+      - BLOCKCHAIN_RPC_URL=http://hardhat-node:8545
+      - INSTITUTION_ID=INST-CENTRAL-DEMO
+    command: sh -c "sleep 3 && npx hardhat run scripts/deploy.js --network localhost"
+    depends_on:
+      hardhat-node:
+        condition: service_healthy
+    networks:
+      - cyber_audit_isolated_net
+
+  # 3. Python FastAPI AI Engine (Isolated port 8005)
+  ai-engine:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    container_name: cyber_audit_ai
+    ports:
+      - "${AI_PORT:-8005}:8000"
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - BLOCKCHAIN_RPC_URL=http://hardhat-node:8545
+      - INSTITUTION_ID=INST-CENTRAL-DEMO
+      - LARGE_TRANSACTION_THRESHOLD=10.0
+      - DAILY_VOLUME_LIMIT=50.0
+      - MAX_WARNING_OVERRIDES=5
+      - MAX_AFTER_HOURS_ACTIONS=3
+      - MAX_BENEFICIARY_REPEAT=10
+      - MIN_DECISION_TIME_SECONDS=10.0
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    depends_on:
+      hardhat-node:
+        condition: service_healthy
+      contract-deployer:
+        condition: service_completed_successfully
+    networks:
+      - cyber_audit_isolated_net
+
+  # 4. React + Vite Cyber-Auditing Dashboard (Isolated port 3005)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cyber_audit_frontend
+    ports:
+      - "${FRONTEND_PORT:-3005}:3000"
+    environment:
+      - VITE_AI_ENGINE_URL=/api
+      - VITE_RPC_URL=http://localhost:${RPC_PORT:-8545}
+    depends_on:
+      ai-engine:
+        condition: service_healthy
+    networks:
+      - cyber_audit_isolated_net
+
+networks:
+  cyber_audit_isolated_net:
+    name: cyber_audit_isolated_net
+    driver: bridge

@@ -100,3 +100,41 @@ export class OperationResult {
     return new OperationResult('failed', null, errorMsg)
   }
 }
+
+let cachedRuntimeConfig = null
+
+/**
+ * Loads runtime configuration dynamically from /runtime-config.json.
+ * Enables changing backend URLs and contract deployments without rebuilding the static bundle.
+ */
+export async function loadRuntimeConfig() {
+  if (cachedRuntimeConfig) return cachedRuntimeConfig
+
+  try {
+    if (typeof fetch !== 'undefined') {
+      const res = await fetch('/runtime-config.json', { cache: 'no-store' })
+      if (res.ok) {
+        cachedRuntimeConfig = await res.json()
+        return cachedRuntimeConfig
+      }
+    }
+  } catch {
+    // Fallback if file not found
+  }
+
+  cachedRuntimeConfig = {
+    institution_id: 'INST-DEFAULT',
+    chain_id: 1337,
+    rpc_url: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_RPC_URL) || 'http://127.0.0.1:8545',
+    ai_engine_url: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_AI_ENGINE_URL) || '/api',
+    app_mode: APP_MODE,
+    contract_version: '2.0.0',
+    contracts: {},
+  }
+  return cachedRuntimeConfig
+}
+
+export function getRuntimeConfig() {
+  return cachedRuntimeConfig
+}
+

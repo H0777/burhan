@@ -89,3 +89,16 @@ Task 9: complete (tests: 13/13 Vitest passing, 143/143 Hardhat passing, 44/44 Py
 - Modified frontend/src/hooks/useAuditEngine.js to query real RoleManager roles upon connect and account switching, strictly defaulting to NONE in institutional mode without fake SUPER_ADMIN fallback.
 - Added DEMO_ROLES and DEMO_PROPOSALS in frontend/src/demo/fixtures.js.
 - Verified all tests pass across Vitest (13/13), Hardhat (143/143), Python (44/44), and Node (7/7); frontend production build succeeds with zero errors.
+
+Task 10: complete (tests: deploy.js passes on Hardhat, docker compose config passes, verify-deployment.js passes)
+- Upgraded scripts/deploy.js to deploy all 6 contracts, configure cross-contract permissions, bootstrap 4 participants (5 total active signers), finalize bootstrap and permanently revoke bootstrapAuthority, compute keccak256 bytecode hashes, export deployments/deployment-manifest.json, and export frontend/public/runtime-config.json.
+- Created standalone scripts/verify-deployment.js checking RPC connection, chainId, bytecode existence, keccak256 hash parity against manifest, bootstrap finalization, bootstrapAuthority revocation, active participants >= 4, and peripheral contract integrations.
+- Created frontend/public/runtime-config.example.json template.
+- Implemented loadRuntimeConfig() and getRuntimeConfig() in frontend/src/config/runtime.js and wrapped frontend/src/main.jsx to load dynamic runtime config before React mount.
+- Updated frontend/nginx.conf to reverse proxy /api to http://ai-engine:8000.
+- Updated frontend/Dockerfile to use npm ci and healthcheck; updated ai-engine/Dockerfile with healthcheck.
+- Updated ai-engine/app/config.py with INSTITUTION_ID and Compose port 3005 CORS origins.
+- Created .dockerignore, frontend/.dockerignore, and ai-engine/.dockerignore blocking .git, .env, secrets, and caches.
+- Updated docker-compose.yml with automated contract-deployer service, healthchecks, and reverse proxy; validated docker compose config --quiet exits 0.
+- Created comprehensive operational runbook in docs/runbooks/local-start.md.
+
