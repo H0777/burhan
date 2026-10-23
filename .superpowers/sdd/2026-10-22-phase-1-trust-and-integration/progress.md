@@ -101,4 +101,11 @@ Task 10: complete (tests: deploy.js passes on Hardhat, docker compose config pas
 - Created .dockerignore, frontend/.dockerignore, and ai-engine/.dockerignore blocking .git, .env, secrets, and caches.
 - Updated docker-compose.yml with automated contract-deployer service, healthchecks, and reverse proxy; validated docker compose config --quiet exits 0.
 - Created comprehensive operational runbook in docs/runbooks/local-start.md.
-
+Task 11: complete (tests: npm run verify:all passing with zero errors; 143/143 Hardhat, 44/44 Python, 13/13 Vitest, 7/7 Node)
+- Created frontend/eslint.config.js adopting ESLint v9 Flat Config format with React and Node/browser global environments.
+- Updated frontend/package.json lint script to run `eslint src`, passing with 0 errors.
+- Created ai-engine/requirements.lock with pinned dependencies for reproducible Python builds.
+- Created .github/workflows/verify.yml with 5 parallel verification jobs: verify-contracts, verify-api, verify-frontend, verify-deployment-smoke, and secret-and-quality-audit.
+- Created scripts/run-python.js cross-platform helper to resolve Python automatically across Windows environments and GitHub Actions CI runners.
+- Documented all gating requirements, secrets detection, and CI timeouts in docs/verification/quality-gates.md.
+- Added unified verification scripts (verify:contracts, verify:api, verify:frontend, verify:all) in root package.json; verified npm run verify:all passes completely.

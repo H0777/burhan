@@ -15,12 +15,16 @@
     "demo:simulate": "hardhat run scripts/simulate-fraud-case.js",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
-    "api:export": "python scripts/export-openapi.py",
-    "api:check": "python scripts/check-openapi.py",
-    "api:generate": "python scripts/export-openapi.py",
+    "api:export": "node scripts/run-python.js scripts/export-openapi.py",
+    "api:check": "node scripts/run-python.js scripts/check-openapi.py",
+    "api:generate": "node scripts/run-python.js scripts/export-openapi.py",
     "contracts:export": "node scripts/export-contracts.js",
     "contracts:check": "node scripts/check-contracts.js",
-    "deploy:verify": "node scripts/verify-deployment.js"
+    "deploy:verify": "node scripts/verify-deployment.js",
+    "verify:contracts": "node scripts/check-contracts.js && hardhat test",
+    "verify:api": "node --test shared/tests/evidence-hash.test.mjs shared/tests/currency.test.mjs && node scripts/run-python.js scripts/check-openapi.py",
+    "verify:frontend": "npm --prefix frontend run lint && npm --prefix frontend test -- --run && npm --prefix frontend run build",
+    "verify:all": "npm run verify:contracts && npm run verify:api && npm run verify:frontend"
   },
   "keywords": [
     "digital-forensics",
