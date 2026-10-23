@@ -207,16 +207,19 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
     });
 
     it("should reject unregistered evidence writer from submitting evidence to ForensicTrail", async function () {
+      const titleHash = ethers.keccak256(ethers.toUtf8Bytes("Unauthorized Incident"));
+      const severityHash = ethers.keccak256(ethers.toUtf8Bytes("HIGH"));
       await expect(
-        forensicTrail.connect(outsider).createIncident("Unauthorized Incident", "HIGH")
+        forensicTrail.connect(outsider).createIncident(titleHash, severityHash)
       ).to.be.revertedWith("ForensicTrail: caller is not authorized evidence writer");
 
       await expect(
         forensicTrail.connect(outsider).submitEvidence(
           1,
-          "SUSPICIOUS_TX",
-          "Tampered document",
-          ethers.encodeBytes32String("hash1")
+          ethers.keccak256(ethers.toUtf8Bytes("req_unauth")),
+          ethers.keccak256(ethers.toUtf8Bytes("SUSPICIOUS_TX")),
+          ethers.keccak256(ethers.toUtf8Bytes("Tampered document")),
+          ethers.sha256(ethers.toUtf8Bytes("hash1"))
         )
       ).to.be.revertedWith("ForensicTrail: caller is not authorized evidence writer");
     });

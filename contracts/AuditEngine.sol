@@ -382,9 +382,17 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
         string memory _description
     ) internal returns (uint256 incidentId) {
         if (isIntegrated && address(forensicTrail) != address(0)) {
-            incidentId = forensicTrail.createIncident(_title, _severity);
-            bytes32 evidenceHash = keccak256(abi.encodePacked(_txId, block.timestamp, _description));
-            forensicTrail.submitEvidence(incidentId, "AUTOMATED_AUDIT_ALARM", _description, evidenceHash);
+            incidentId = forensicTrail.createIncident(
+                keccak256(bytes(_title)),
+                keccak256(bytes(_severity))
+            );
+            forensicTrail.submitEvidence(
+                incidentId,
+                keccak256(abi.encodePacked(block.chainid, address(this), _txId, block.timestamp, "AUDIT_ALARM")),
+                keccak256("AUTOMATED_AUDIT_ALARM"),
+                keccak256(bytes(_description)),
+                sha256(abi.encodePacked(_txId, block.timestamp, _description))
+            );
             emit AutomatedForensicIncidentCreated(incidentId, _txId, _severity, block.timestamp);
         }
     }
@@ -501,15 +509,27 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
             );
 
             // Log evidence to ForensicTrail if integrated
-            if (address(forensicTrail) != address(0)) {
-                uint256 incId = forensicTrail.createIncident("MULTISIG_OVERRIDE_AUDIT", "LOW");
-                forensicTrail.submitEvidence(
-                    incId,
-                    "MULTISIG_OVERRIDE_RECORD",
-                    _justification,
-                    keccak256(abi.encodePacked(_txId, _proposalId, msg.sender, block.timestamp))
-                );
-            }
+            _logMultiSigOverrideEvidence(_txId, _proposalId, _justification);
+        }
+    }
+
+    function _logMultiSigOverrideEvidence(
+        uint256 _txId,
+        uint256 _proposalId,
+        string calldata _justification
+    ) internal {
+        if (address(forensicTrail) != address(0)) {
+            uint256 incId = forensicTrail.createIncident(
+                keccak256("MULTISIG_OVERRIDE_AUDIT"),
+                keccak256("LOW")
+            );
+            forensicTrail.submitEvidence(
+                incId,
+                keccak256(abi.encodePacked(block.chainid, address(this), _txId, _proposalId, "OVERRIDE")),
+                keccak256("MULTISIG_OVERRIDE_RECORD"),
+                keccak256(bytes(_justification)),
+                sha256(abi.encodePacked(_txId, _proposalId, msg.sender, block.timestamp))
+            );
         }
     }
 
@@ -784,12 +804,16 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
 
             // Automated forensic trail entry
             if (address(forensicTrail) != address(0)) {
-                uint256 incId = forensicTrail.createIncident("EMERGENCY_CIRCUIT_BREAKER", "CRITICAL");
+                uint256 incId = forensicTrail.createIncident(
+                    keccak256("EMERGENCY_CIRCUIT_BREAKER"),
+                    keccak256("CRITICAL")
+                );
                 forensicTrail.submitEvidence(
                     incId,
-                    "CIRCUIT_BREAKER_TRIGGERED",
-                    _reason,
-                    keccak256(abi.encodePacked(msg.sender, block.timestamp, _reason))
+                    keccak256(abi.encodePacked(block.chainid, address(this), pauseEpoch, block.timestamp, "CIRCUIT_BREAKER")),
+                    keccak256("CIRCUIT_BREAKER_TRIGGERED"),
+                    keccak256(bytes(_reason)),
+                    sha256(abi.encodePacked(msg.sender, block.timestamp, _reason))
                 );
             }
         }

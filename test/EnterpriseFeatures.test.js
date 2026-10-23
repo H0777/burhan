@@ -215,8 +215,8 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
 
       expect(await forensicTrail.totalIncidents()).to.equal(1);
       const incident = await forensicTrail.getIncident(1);
-      expect(incident.title).to.equal("CRITICAL_LARGE_TRANSFER");
-      expect(incident.severity).to.equal("HIGH");
+      expect(incident.titleHash).to.equal(ethers.keccak256(ethers.toUtf8Bytes("CRITICAL_LARGE_TRANSFER")));
+      expect(incident.severityHash).to.equal(ethers.keccak256(ethers.toUtf8Bytes("HIGH")));
       expect(incident.evidenceCount).to.equal(1);
 
       // Verify chain integrity
@@ -319,8 +319,8 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       // Automated forensic incident must be created
       expect(await forensicTrail.totalIncidents()).to.equal(1);
       const inc = await forensicTrail.getIncident(1);
-      expect(inc.title).to.equal("EMERGENCY_CIRCUIT_BREAKER");
-      expect(inc.severity).to.equal("CRITICAL");
+      expect(inc.titleHash).to.equal(ethers.keccak256(ethers.toUtf8Bytes("EMERGENCY_CIRCUIT_BREAKER")));
+      expect(inc.severityHash).to.equal(ethers.keccak256(ethers.toUtf8Bytes("CRITICAL")));
     });
 
     it("Should require MultiSig approval to unpause the engine (Dual-Control)", async function () {

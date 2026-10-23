@@ -1,25 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "../libraries/EvidenceHashing.sol";
+
 /**
  * @title ForensicTrail
  * @author H0777
- * @notice Immutable forensic evidence chain for cyber-auditing and legal proceedings
+ * @notice Immutable forensic evidence chain for cyber-auditing and legal proceedings (V2)
  * @dev Creates an unalterable, linked chain of digital evidence on the blockchain.
- *      Each evidence entry references the previous one via hash linking, forming
- *      a verifiable Chain of Custody that cannot be tampered with — even by admins.
- *
- * Key Properties:
- *   - Append-only: Evidence can never be modified or deleted
- *   - Hash-linked: Each entry contains the hash of the previous entry
- *   - Timestamped: Block timestamp provides court-admissible timing
- *   - Attributed: Every entry records who submitted the evidence
- *
- * Use Cases:
- *   - Recording suspicious transaction evidence
- *   - Documenting insider threat investigation steps
- *   - Building court-ready forensic dossiers
- *   - Regulatory compliance reporting (Central Bank / AML Authority)
+ *      Uses canonical Evidence V2 hashing and deduplication per Design Specification §5 & §6.
  */
 contract ForensicTrail {
 
@@ -32,21 +21,29 @@ contract ForensicTrail {
         uint256 incidentId;
         address submittedBy;
         uint256 timestamp;
-        string evidenceType;        // e.g., "TRANSACTION_ANOMALY", "INSIDER_OVERRIDE", "AML_VIOLATION"
-        string description;
-        bytes32 evidenceHash;       // SHA-256 hash of off-chain evidence (documents, screenshots, etc.)
+        bytes32 evidenceTypeHash;
+        bytes32 descriptionHash;
+        bytes32 evidenceHash;       // SHA-256 hash of off-chain evidence (file/payload)
         bytes32 previousEntryHash;  // Hash of the previous evidence entry in this incident chain
-        bytes32 entryHash;          // Hash of THIS entry (for chain verification)
+        bytes32 entryHash;          // Canonical V2 entry hash (EvidenceHashing)
     }
 
     struct Incident {
         uint256 id;
-        string title;
-        string severity;            // "LOW", "MEDIUM", "HIGH", "CRITICAL"
+        bytes32 titleHash;
+        bytes32 severityHash;
         address reportedBy;
         uint256 reportedAt;
         bool isOpen;
         uint256 evidenceCount;
+    }
+
+    struct DedupRecord {
+        bytes32 payloadHash;
+        uint256 evidenceId;
+        bytes32 entryHash;
+        address submittedBy;
+        bool exists;
     }
 
     // ============================================================
@@ -57,7 +54,7 @@ contract ForensicTrail {
     uint256 private _incidentCounter;
     uint256 private _evidenceCounter;
 
-    /// @notice Allowlist of authorized evidence writers (e.g. AuditEngine or official ingest service)
+    /// @notice Allowlist of authorized evidence writers (AuditEngine, ingest service)
     mapping(address => bool) public isEvidenceWriter;
 
     /// @notice All incidents by ID
@@ -65,6 +62,9 @@ contract ForensicTrail {
 
     /// @notice Evidence entries per incident (ordered)
     mapping(uint256 => Evidence[]) private _evidenceChain;
+
+    /// @notice Deduplication tracking by anchorRequestId
+    mapping(bytes32 => DedupRecord) private _anchorRequests;
 
     /// @notice All incident IDs
     uint256[] private _allIncidentIds;
@@ -78,8 +78,8 @@ contract ForensicTrail {
 
     event IncidentCreated(
         uint256 indexed incidentId,
-        string title,
-        string severity,
+        bytes32 titleHash,
+        bytes32 severityHash,
         address indexed reportedBy,
         uint256 timestamp
     );
@@ -88,7 +88,7 @@ contract ForensicTrail {
         uint256 indexed incidentId,
         uint256 indexed evidenceId,
         address indexed submittedBy,
-        string evidenceType,
+        bytes32 evidenceTypeHash,
         bytes32 entryHash,
         uint256 timestamp
     );
@@ -121,18 +121,12 @@ contract ForensicTrail {
     // GOVERNANCE CONFIGURATION
     // ============================================================
 
-    /**
-     * @notice Transfer governance
-     */
     function setGovernance(address _newGov) external onlyGovernance {
         require(_newGov != address(0), "ForensicTrail: zero address");
         governance = _newGov;
         emit GovernanceTransferred(_newGov);
     }
 
-    /**
-     * @notice Configure authorized evidence writer (governance only)
-     */
     function setEvidenceWriter(address _writer, bool _authorized) external onlyGovernance {
         require(_writer != address(0), "ForensicTrail: zero address");
         isEvidenceWriter[_writer] = _authorized;
@@ -140,33 +134,32 @@ contract ForensicTrail {
     }
 
     // ============================================================
-    // CORE FUNCTIONS
+    // CORE FUNCTIONS (V2)
     // ============================================================
 
     /**
-     * @notice Create a new forensic incident
-     * @param _title Brief description of the incident
-     * @param _severity Severity level: LOW, MEDIUM, HIGH, CRITICAL
-     * @return incidentId The unique incident identifier
+     * @notice Create a new forensic incident with hashed metadata (no raw sensitive data on-chain)
+     * @param _titleHash Keccak256 hash of title
+     * @param _severityHash Keccak256 hash of severity
      */
     function createIncident(
-        string calldata _title,
-        string calldata _severity
+        bytes32 _titleHash,
+        bytes32 _severityHash
     ) external returns (uint256 incidentId) {
         require(
             isEvidenceWriter[msg.sender] || msg.sender == governance,
             "ForensicTrail: caller is not authorized evidence writer"
         );
-        require(bytes(_title).length > 0, "ForensicTrail: title required");
-        require(bytes(_severity).length > 0, "ForensicTrail: severity required");
+        require(_titleHash != bytes32(0), "ForensicTrail: title required");
+        require(_severityHash != bytes32(0), "ForensicTrail: severity required");
 
         _incidentCounter++;
         incidentId = _incidentCounter;
 
         _incidents[incidentId] = Incident({
             id: incidentId,
-            title: _title,
-            severity: _severity,
+            titleHash: _titleHash,
+            severityHash: _severityHash,
             reportedBy: msg.sender,
             reportedAt: block.timestamp,
             isOpen: true,
@@ -177,35 +170,51 @@ contract ForensicTrail {
 
         emit IncidentCreated(
             incidentId,
-            _title,
-            _severity,
+            _titleHash,
+            _severityHash,
             msg.sender,
             block.timestamp
         );
     }
 
     /**
-     * @notice Submit evidence to an incident's chain
-     * @param _incidentId The incident to attach evidence to
-     * @param _evidenceType Type classification (e.g., "TRANSACTION_ANOMALY")
-     * @param _description Human-readable description of the evidence
-     * @param _evidenceHash SHA-256 hash of any off-chain evidence files
+     * @notice Submit evidence to an incident's chain with deduplication and canonical V2 hashing
+     * @param _incidentId Target incident ID
+     * @param _anchorRequestId Unique operation ID for idempotency/deduplication
+     * @param _evidenceTypeHash Keccak256 hash of evidence type classification
+     * @param _descriptionHash Keccak256 hash of description
+     * @param _fileSha256 SHA-256 hash of off-chain payload/file
      * @return evidenceId The unique evidence entry identifier
      */
     function submitEvidence(
         uint256 _incidentId,
-        string calldata _evidenceType,
-        string calldata _description,
-        bytes32 _evidenceHash
+        bytes32 _anchorRequestId,
+        bytes32 _evidenceTypeHash,
+        bytes32 _descriptionHash,
+        bytes32 _fileSha256
     ) external returns (uint256 evidenceId) {
+        require(_anchorRequestId != bytes32(0), "ForensicTrail: anchorRequestId required");
+
+        bytes32 payloadHash = keccak256(
+            abi.encode(_incidentId, _evidenceTypeHash, _descriptionHash, _fileSha256)
+        );
+
+        // Deduplication check
+        if (_anchorRequests[_anchorRequestId].exists) {
+            DedupRecord storage rec = _anchorRequests[_anchorRequestId];
+            require(rec.submittedBy == msg.sender, "ForensicTrail: anchorRequestId submittedBy mismatch");
+            require(rec.payloadHash == payloadHash, "ForensicTrail: anchorRequestId payload mismatch");
+            return rec.evidenceId; // Idempotent return without incrementing or emitting event
+        }
+
         require(isEvidenceWriter[msg.sender], "ForensicTrail: caller is not authorized evidence writer");
         require(
             _incidentId > 0 && _incidentId <= _incidentCounter,
             "ForensicTrail: incident does not exist"
         );
         require(_incidents[_incidentId].isOpen, "ForensicTrail: incident is closed");
-        require(bytes(_evidenceType).length > 0, "ForensicTrail: type required");
-        require(bytes(_description).length > 0, "ForensicTrail: description required");
+        require(_evidenceTypeHash != bytes32(0), "ForensicTrail: type required");
+        require(_descriptionHash != bytes32(0), "ForensicTrail: description required");
 
         _evidenceCounter++;
         evidenceId = _evidenceCounter;
@@ -216,26 +225,31 @@ contract ForensicTrail {
             ? chain[chain.length - 1].entryHash
             : bytes32(0);
 
-        // Compute this entry's hash (links to previous, creating tamper-evident chain)
-        bytes32 entryHash = keccak256(abi.encodePacked(
-            evidenceId,
-            _incidentId,
-            msg.sender,
-            block.timestamp,
-            _evidenceType,
-            _description,
-            _evidenceHash,
-            prevHash
-        ));
+        // Compute canonical V2 entry hash
+        EvidenceHashing.EvidenceV2 memory entryV2 = EvidenceHashing.EvidenceV2({
+            schemaVersion: EvidenceHashing.SCHEMA_VERSION,
+            chainId: block.chainid,
+            contractAddress: address(this),
+            incidentId: _incidentId,
+            evidenceId: evidenceId,
+            submittedBy: msg.sender,
+            timestamp: block.timestamp,
+            evidenceTypeHash: _evidenceTypeHash,
+            descriptionHash: _descriptionHash,
+            evidenceHash: _fileSha256,
+            previousEntryHash: prevHash
+        });
+
+        bytes32 entryHash = EvidenceHashing.hashEntry(entryV2);
 
         Evidence memory newEvidence = Evidence({
             id: evidenceId,
             incidentId: _incidentId,
             submittedBy: msg.sender,
             timestamp: block.timestamp,
-            evidenceType: _evidenceType,
-            description: _description,
-            evidenceHash: _evidenceHash,
+            evidenceTypeHash: _evidenceTypeHash,
+            descriptionHash: _descriptionHash,
+            evidenceHash: _fileSha256,
             previousEntryHash: prevHash,
             entryHash: entryHash
         });
@@ -243,14 +257,40 @@ contract ForensicTrail {
         chain.push(newEvidence);
         _incidents[_incidentId].evidenceCount++;
 
+        // Store deduplication record
+        _anchorRequests[_anchorRequestId] = DedupRecord({
+            payloadHash: payloadHash,
+            evidenceId: evidenceId,
+            entryHash: entryHash,
+            submittedBy: msg.sender,
+            exists: true
+        });
+
         emit EvidenceSubmitted(
             _incidentId,
             evidenceId,
             msg.sender,
-            _evidenceType,
+            _evidenceTypeHash,
             entryHash,
             block.timestamp
         );
+    }
+
+    /**
+     * @notice Get evidence details by idempotent anchorRequestId
+     */
+    function getEvidenceByRequestId(bytes32 _anchorRequestId)
+        external
+        view
+        returns (
+            uint256 evidenceId,
+            bytes32 entryHash,
+            address submittedBy,
+            bool exists
+        )
+    {
+        DedupRecord storage rec = _anchorRequests[_anchorRequestId];
+        return (rec.evidenceId, rec.entryHash, rec.submittedBy, rec.exists);
     }
 
     /**
@@ -265,7 +305,7 @@ contract ForensicTrail {
         Incident storage incident = _incidents[_incidentId];
         require(incident.isOpen, "ForensicTrail: already closed");
         require(
-            msg.sender == incident.reportedBy,
+            msg.sender == incident.reportedBy || msg.sender == governance,
             "ForensicTrail: only reporter can close"
         );
 
@@ -277,9 +317,6 @@ contract ForensicTrail {
     // VIEW FUNCTIONS
     // ============================================================
 
-    /**
-     * @notice Get incident details
-     */
     function getIncident(uint256 _incidentId) external view returns (Incident memory) {
         require(
             _incidentId > 0 && _incidentId <= _incidentCounter,
@@ -288,9 +325,6 @@ contract ForensicTrail {
         return _incidents[_incidentId];
     }
 
-    /**
-     * @notice Get the complete evidence chain for an incident
-     */
     function getEvidenceChain(uint256 _incidentId)
         external
         view
@@ -304,9 +338,7 @@ contract ForensicTrail {
     }
 
     /**
-     * @notice Verify the integrity of an evidence chain
-     * @dev Recomputes each entry's hash and checks chain linking
-     * @return isValid True if the entire chain is intact
+     * @notice Verify the cryptographic integrity of an evidence chain using Evidence V2 hashing
      */
     function verifyChainIntegrity(uint256 _incidentId)
         external
@@ -324,44 +356,37 @@ contract ForensicTrail {
         for (uint256 i = 0; i < chain.length; i++) {
             Evidence storage entry = chain[i];
 
-            // Verify previous hash link
             bytes32 expectedPrevHash = i > 0 ? chain[i - 1].entryHash : bytes32(0);
             if (entry.previousEntryHash != expectedPrevHash) return false;
 
-            // Recompute and verify entry hash
-            bytes32 computedHash = keccak256(abi.encodePacked(
-                entry.id,
-                entry.incidentId,
-                entry.submittedBy,
-                entry.timestamp,
-                entry.evidenceType,
-                entry.description,
-                entry.evidenceHash,
-                entry.previousEntryHash
-            ));
-            if (entry.entryHash != computedHash) return false;
+            EvidenceHashing.EvidenceV2 memory entryV2 = EvidenceHashing.EvidenceV2({
+                schemaVersion: EvidenceHashing.SCHEMA_VERSION,
+                chainId: block.chainid,
+                contractAddress: address(this),
+                incidentId: entry.incidentId,
+                evidenceId: entry.id,
+                submittedBy: entry.submittedBy,
+                timestamp: entry.timestamp,
+                evidenceTypeHash: entry.evidenceTypeHash,
+                descriptionHash: entry.descriptionHash,
+                evidenceHash: entry.evidenceHash,
+                previousEntryHash: entry.previousEntryHash
+            });
+
+            if (entry.entryHash != EvidenceHashing.hashEntry(entryV2)) return false;
         }
 
         return true;
     }
 
-    /**
-     * @notice Get all incident IDs
-     */
     function getAllIncidentIds() external view returns (uint256[] memory) {
         return _allIncidentIds;
     }
 
-    /**
-     * @notice Get total number of incidents
-     */
     function totalIncidents() external view returns (uint256) {
         return _incidentCounter;
     }
 
-    /**
-     * @notice Get total number of evidence entries across all incidents
-     */
     function totalEvidence() external view returns (uint256) {
         return _evidenceCounter;
     }

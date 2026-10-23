@@ -25,16 +25,19 @@ describe("ForensicTrail", function () {
 
   describe("Incident Creation", function () {
     it("Should create an incident with correct details and emit event", async function () {
+      const titleHash = ethers.keccak256(ethers.toUtf8Bytes("Unauthorized Treasury Withdrawal Attempt"));
+      const severityHash = ethers.keccak256(ethers.toUtf8Bytes("CRITICAL"));
+
       const tx = await forensicTrail.connect(investigator).createIncident(
-        "Unauthorized Treasury Withdrawal Attempt",
-        "CRITICAL"
+        titleHash,
+        severityHash
       );
       await expect(tx)
         .to.emit(forensicTrail, "IncidentCreated")
         .withArgs(
           1,
-          "Unauthorized Treasury Withdrawal Attempt",
-          "CRITICAL",
+          titleHash,
+          severityHash,
           investigator.address,
           await ethers.provider.getBlock("latest").then((b) => b.timestamp)
         );
@@ -42,39 +45,48 @@ describe("ForensicTrail", function () {
       expect(await forensicTrail.totalIncidents()).to.equal(1);
       const inc = await forensicTrail.getIncident(1);
       expect(inc.id).to.equal(1);
-      expect(inc.title).to.equal("Unauthorized Treasury Withdrawal Attempt");
-      expect(inc.severity).to.equal("CRITICAL");
+      expect(inc.titleHash).to.equal(titleHash);
+      expect(inc.severityHash).to.equal(severityHash);
       expect(inc.reportedBy).to.equal(investigator.address);
       expect(inc.isOpen).to.equal(true);
       expect(inc.evidenceCount).to.equal(0);
     });
 
     it("Should revert on empty title or empty severity", async function () {
+      const validHash = ethers.keccak256(ethers.toUtf8Bytes("Valid"));
       await expect(
-        forensicTrail.connect(investigator).createIncident("", "HIGH")
+        forensicTrail.connect(investigator).createIncident(ethers.ZeroHash, validHash)
       ).to.be.revertedWith("ForensicTrail: title required");
 
       await expect(
-        forensicTrail.connect(investigator).createIncident("Incident 1", "")
+        forensicTrail.connect(investigator).createIncident(validHash, ethers.ZeroHash)
       ).to.be.revertedWith("ForensicTrail: severity required");
     });
   });
 
   describe("Evidence Submission & Chain of Custody", function () {
+    const titleHash = ethers.keccak256(ethers.toUtf8Bytes("AML Structuring Pattern Detected"));
+    const severityHash = ethers.keccak256(ethers.toUtf8Bytes("HIGH"));
+
     beforeEach(async function () {
       await forensicTrail.connect(investigator).createIncident(
-        "AML Structuring Pattern Detected",
-        "HIGH"
+        titleHash,
+        severityHash
       );
     });
 
     it("Should submit first evidence entry with zero previous hash", async function () {
-      const docHash = ethers.keccak256(ethers.toUtf8Bytes("bank_statement_2026.pdf"));
+      const typeHash = ethers.keccak256(ethers.toUtf8Bytes("TRANSACTION_ANOMALY"));
+      const descHash = ethers.keccak256(ethers.toUtf8Bytes("Multiple transactions just under 10,000 threshold within 1 hour"));
+      const docHash = ethers.sha256(ethers.toUtf8Bytes("bank_statement_2026.pdf"));
+      const reqId = ethers.keccak256(ethers.toUtf8Bytes("req_initial_01"));
+
       await expect(
         forensicTrail.connect(investigator).submitEvidence(
           1,
-          "TRANSACTION_ANOMALY",
-          "Multiple transactions just under 10,000 threshold within 1 hour",
+          reqId,
+          typeHash,
+          descHash,
           docHash
         )
       ).to.emit(forensicTrail, "EvidenceSubmitted");
@@ -86,29 +98,25 @@ describe("ForensicTrail", function () {
       expect(chain[0].id).to.equal(1);
       expect(chain[0].incidentId).to.equal(1);
       expect(chain[0].submittedBy).to.equal(investigator.address);
-      expect(chain[0].evidenceType).to.equal("TRANSACTION_ANOMALY");
+      expect(chain[0].evidenceTypeHash).to.equal(typeHash);
       expect(chain[0].evidenceHash).to.equal(docHash);
       expect(chain[0].previousEntryHash).to.equal(ethers.ZeroHash);
       expect(chain[0].entryHash).to.not.equal(ethers.ZeroHash);
     });
 
     it("Should link subsequent evidence to the previous entry hash", async function () {
-      const doc1 = ethers.keccak256(ethers.toUtf8Bytes("audit_log_1.json"));
-      const doc2 = ethers.keccak256(ethers.toUtf8Bytes("witness_statement.pdf"));
+      const type1 = ethers.keccak256(ethers.toUtf8Bytes("INSIDER_ACTIVITY"));
+      const desc1 = ethers.keccak256(ethers.toUtf8Bytes("Employee overrode AML warnings 3 times consecutively"));
+      const doc1 = ethers.sha256(ethers.toUtf8Bytes("audit_log_1.json"));
+      const req1 = ethers.keccak256(ethers.toUtf8Bytes("req_1"));
 
-      await forensicTrail.connect(investigator).submitEvidence(
-        1,
-        "INSIDER_ACTIVITY",
-        "Employee overrode AML warnings 3 times consecutively",
-        doc1
-      );
+      const type2 = ethers.keccak256(ethers.toUtf8Bytes("INTERVIEW_RECORD"));
+      const desc2 = ethers.keccak256(ethers.toUtf8Bytes("Operator failed to provide written authorization for overrides"));
+      const doc2 = ethers.sha256(ethers.toUtf8Bytes("witness_statement.pdf"));
+      const req2 = ethers.keccak256(ethers.toUtf8Bytes("req_2"));
 
-      await forensicTrail.connect(auditor).submitEvidence(
-        1,
-        "INTERVIEW_RECORD",
-        "Operator failed to provide written authorization for overrides",
-        doc2
-      );
+      await forensicTrail.connect(investigator).submitEvidence(1, req1, type1, desc1, doc1);
+      await forensicTrail.connect(auditor).submitEvidence(1, req2, type2, desc2, doc2);
 
       const chain = await forensicTrail.getEvidenceChain(1);
       expect(chain.length).to.equal(2);
@@ -116,29 +124,43 @@ describe("ForensicTrail", function () {
     });
 
     it("Should verify cryptographic chain integrity", async function () {
-      const doc1 = ethers.keccak256(ethers.toUtf8Bytes("entry1"));
-      const doc2 = ethers.keccak256(ethers.toUtf8Bytes("entry2"));
-      const doc3 = ethers.keccak256(ethers.toUtf8Bytes("entry3"));
+      const typeA = ethers.keccak256(ethers.toUtf8Bytes("TYPE_A"));
+      const descA = ethers.keccak256(ethers.toUtf8Bytes("Step 1"));
+      const docA = ethers.sha256(ethers.toUtf8Bytes("entry1"));
 
-      await forensicTrail.connect(investigator).submitEvidence(1, "TYPE_A", "Step 1", doc1);
-      await forensicTrail.connect(auditor).submitEvidence(1, "TYPE_B", "Step 2", doc2);
-      await forensicTrail.connect(investigator).submitEvidence(1, "TYPE_C", "Step 3", doc3);
+      const typeB = ethers.keccak256(ethers.toUtf8Bytes("TYPE_B"));
+      const descB = ethers.keccak256(ethers.toUtf8Bytes("Step 2"));
+      const docB = ethers.sha256(ethers.toUtf8Bytes("entry2"));
+
+      const typeC = ethers.keccak256(ethers.toUtf8Bytes("TYPE_C"));
+      const descC = ethers.keccak256(ethers.toUtf8Bytes("Step 3"));
+      const docC = ethers.sha256(ethers.toUtf8Bytes("entry3"));
+
+      await forensicTrail.connect(investigator).submitEvidence(1, ethers.keccak256(ethers.toUtf8Bytes("r1")), typeA, descA, docA);
+      await forensicTrail.connect(auditor).submitEvidence(1, ethers.keccak256(ethers.toUtf8Bytes("r2")), typeB, descB, docB);
+      await forensicTrail.connect(investigator).submitEvidence(1, ethers.keccak256(ethers.toUtf8Bytes("r3")), typeC, descC, docC);
 
       const isChainValid = await forensicTrail.verifyChainIntegrity(1);
       expect(isChainValid).to.equal(true);
     });
 
     it("Should revert evidence submission on non-existent or closed incident", async function () {
-      const doc = ethers.keccak256(ethers.toUtf8Bytes("file"));
+      const type = ethers.keccak256(ethers.toUtf8Bytes("TYPE"));
+      const desc = ethers.keccak256(ethers.toUtf8Bytes("Desc"));
+      const doc = ethers.sha256(ethers.toUtf8Bytes("file"));
+      const req = ethers.keccak256(ethers.toUtf8Bytes("r_non_existent"));
+
       await expect(
-        forensicTrail.connect(investigator).submitEvidence(999, "TYPE", "Desc", doc)
+        forensicTrail.connect(investigator).submitEvidence(999, req, type, desc, doc)
       ).to.be.revertedWith("ForensicTrail: incident does not exist");
     });
   });
 
   describe("Incident Lifecycle & Closure", function () {
     beforeEach(async function () {
-      await forensicTrail.connect(investigator).createIncident("Insider Collusion Case", "HIGH");
+      const titleHash = ethers.keccak256(ethers.toUtf8Bytes("Insider Collusion Case"));
+      const severityHash = ethers.keccak256(ethers.toUtf8Bytes("HIGH"));
+      await forensicTrail.connect(investigator).createIncident(titleHash, severityHash);
     });
 
     it("Should allow only the reporter to close an incident", async function () {
@@ -156,9 +178,13 @@ describe("ForensicTrail", function () {
     it("Should reject evidence submissions once incident is closed", async function () {
       await forensicTrail.connect(investigator).closeIncident(1);
 
-      const doc = ethers.keccak256(ethers.toUtf8Bytes("late_entry"));
+      const type = ethers.keccak256(ethers.toUtf8Bytes("LATE_EVIDENCE"));
+      const desc = ethers.keccak256(ethers.toUtf8Bytes("Post closure note"));
+      const doc = ethers.sha256(ethers.toUtf8Bytes("late_entry"));
+      const req = ethers.keccak256(ethers.toUtf8Bytes("r_late"));
+
       await expect(
-        forensicTrail.connect(investigator).submitEvidence(1, "LATE_EVIDENCE", "Post closure note", doc)
+        forensicTrail.connect(investigator).submitEvidence(1, req, type, desc, doc)
       ).to.be.revertedWith("ForensicTrail: incident is closed");
     });
 
