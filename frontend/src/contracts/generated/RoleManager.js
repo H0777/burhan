@@ -406,23 +406,5 @@ export default [
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_target",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_gen",
-        "type": "uint256"
-      }
-    ],
-    "name": "testSetGeneration",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
   }
 ]

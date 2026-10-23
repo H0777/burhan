@@ -298,9 +298,24 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
       await multiSig.connect(admin).approveProposal(1);
       await multiSig.connect(auditor2).approveProposal(1);
 
-      // Now, Auditor2's role is revoked via governance (roleManager.revokeRole)
-      // Since revokeRole must be called by governance (multiSig), let's create a role change proposal or test generation check directly
-      await roleManager.connect(admin).testSetGeneration(auditor2.address, 2); // simulates generation increment / revocation
+      // Now, Auditor2's role is revoked through the REAL governance path (R01):
+      // revokeRole is onlyGovernance (the multiSig contract), so a ROLE_CHANGE
+      // proposal must target roleManager and be executed atomically. revokeRole
+      // bumps auditor2's authorization generation, making their earlier approval stale.
+      const revokeCalldata = roleManager.interface.encodeFunctionData("revokeRole", [
+        auditor2.address,
+        "R01: auditor2 authorization revoked before execution",
+      ]);
+      await multiSig.connect(auditor1).createProposal(
+        ProposalType.ROLE_CHANGE,
+        await roleManager.getAddress(),
+        revokeCalldata,
+        ethers.id("Revoke auditor2 role")
+      );
+      await multiSig.connect(admin).approveProposal(2);
+      await multiSig.connect(auditor2).approveProposal(2);
+      await multiSig.connect(admin).executeProposal(2);
+      expect(await roleManager.getRole(auditor2.address)).to.equal(0); // Role.NONE
 
       // Attempt execution: auditor2's generation is now stale
       await expect(

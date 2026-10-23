@@ -308,11 +308,4 @@ contract RoleManager {
             _roles[_addr] != Role.NONE
         );
     }
-
-    /**
-     * @notice Test helper to simulate authorization generation change / revocation
-     */
-    function testSetGeneration(address _target, uint256 _gen) external {
-        _generations[_target] = _gen;
-    }
 }
