@@ -149,6 +149,11 @@ contract InsiderActivityLog {
 
     /**
      * @notice Configure authorized recorder contract (governance only)
+     * @dev R03: in the integrated system governance is the MultiSig coordinator,
+     *      so recorder changes reach this function exclusively through a
+     *      SYSTEM_CONFIG proposal (InsiderActivityLog.setRecorder(address,bool)
+     *      is on the closed action table; a grant waits 86,400s, a revocation
+     *      executes at delay 0 — both under two independent approvals).
      */
     function setRecorder(address _recorder, bool _authorized) external onlyGovernance {
         require(_recorder != address(0), "InsiderLog: zero address");

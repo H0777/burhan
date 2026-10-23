@@ -90,14 +90,20 @@ describe("Manifest Commitment & Case References (R03)", function () {
 
       const firstId = await forensicTrail
         .connect(writer1)
-        .submitEvidenceAttested(1, requestId, TYPE_HASH, DESC_HASH, FILE_SHA, manifestDigest);
+        .submitEvidenceAttested.staticCall(1, requestId, TYPE_HASH, DESC_HASH, FILE_SHA, manifestDigest);
       expect(firstId).to.equal(1n);
+      await forensicTrail
+        .connect(writer1)
+        .submitEvidenceAttested(1, requestId, TYPE_HASH, DESC_HASH, FILE_SHA, manifestDigest);
 
       // Idempotent replay — even from another authorized writer.
       const replayId = await forensicTrail
         .connect(writer2)
-        .submitEvidenceAttested(1, requestId, TYPE_HASH, DESC_HASH, FILE_SHA, manifestDigest);
+        .submitEvidenceAttested.staticCall(1, requestId, TYPE_HASH, DESC_HASH, FILE_SHA, manifestDigest);
       expect(replayId).to.equal(firstId);
+      await forensicTrail
+        .connect(writer2)
+        .submitEvidenceAttested(1, requestId, TYPE_HASH, DESC_HASH, FILE_SHA, manifestDigest);
 
       expect(await forensicTrail.totalEvidence()).to.equal(1n);
       expect((await forensicTrail.getIncident(1)).evidenceCount).to.equal(1n);
@@ -134,9 +140,11 @@ describe("Manifest Commitment & Case References (R03)", function () {
     function caseReferenceHash(forensicTrailAddress, institutionRefHash, caseIdHash) {
       // keccak256(abi.encode(chainId, ForensicTrail, institutionRefHash, caseIdHash))
       // computed OFF-chain by the caller.
-      return ethers.AbiCoder.defaultAbiCoder().encode(
-        ["uint256", "address", "bytes32", "bytes32"],
-        [31337n, forensicTrailAddress, institutionRefHash, caseIdHash]
+      return ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(
+          ["uint256", "address", "bytes32", "bytes32"],
+          [31337n, forensicTrailAddress, institutionRefHash, caseIdHash]
+        )
       );
     }
 
@@ -149,8 +157,9 @@ describe("Manifest Commitment & Case References (R03)", function () {
 
       const firstId = await forensicTrail
         .connect(writer1)
-        .createIncidentForCase(ref, TITLE_HASH, SEVERITY_HASH);
+        .createIncidentForCase.staticCall(ref, TITLE_HASH, SEVERITY_HASH);
       expect(firstId).to.equal(1n);
+      await forensicTrail.connect(writer1).createIncidentForCase(ref, TITLE_HASH, SEVERITY_HASH);
       expect(await forensicTrail.getIncidentByCaseReference(ref)).to.equal(1n);
       expect(await forensicTrail.totalIncidents()).to.equal(1n);
 
@@ -158,8 +167,9 @@ describe("Manifest Commitment & Case References (R03)", function () {
       // no takeover, no second incident.
       const replayId = await forensicTrail
         .connect(writer2)
-        .createIncidentForCase(ref, TITLE_HASH, SEVERITY_HASH);
+        .createIncidentForCase.staticCall(ref, TITLE_HASH, SEVERITY_HASH);
       expect(replayId).to.equal(1n);
+      await forensicTrail.connect(writer2).createIncidentForCase(ref, TITLE_HASH, SEVERITY_HASH);
       expect(await forensicTrail.totalIncidents()).to.equal(1n);
 
       const incident = await forensicTrail.getIncident(1);
