@@ -17,7 +17,9 @@
     "frontend:build": "npm --prefix frontend run build",
     "api:export": "python scripts/export-openapi.py",
     "api:check": "python scripts/check-openapi.py",
-    "api:generate": "python scripts/export-openapi.py"
+    "api:generate": "python scripts/export-openapi.py",
+    "contracts:export": "node scripts/export-contracts.js",
+    "contracts:check": "node scripts/check-contracts.js"
   },
   "keywords": [
     "digital-forensics",

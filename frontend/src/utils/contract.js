@@ -1,108 +1,161 @@
 import { ethers } from 'ethers'
+import {
+  AuditEngineABI,
+  ForensicTrailABI,
+  MultiSigApprovalABI,
+  RoleManagerABI,
+  InsiderActivityLogABI,
+  ComplianceRulesABI,
+  CONTRACT_ABIS
+} from '../contracts/generated/index.js'
+import { APP_MODE, isInstitutionalMode, isDemoMode, OperationResult } from '../config/runtime.js'
+import { DEMO_FALLBACK_WALLET } from '../demo/fixtures.js'
 
-// ABI - Generated from AuditEngine.sol
-export const AUDIT_ENGINE_ABI = [
-  // Events
-  'event TransactionSubmitted(uint256 indexed txId, address indexed sender, address indexed receiver, uint256 amount, uint256 timestamp)',
-  'event TransactionFlagged(uint256 indexed txId, address indexed flaggedBy, string reason)',
-  'event TransactionCleared(uint256 indexed txId, address indexed clearedBy)',
-  'event AddressBlacklisted(address indexed addr, address indexed by)',
-  'event KYCVerified(address indexed addr, address indexed by)',
+// Deployed contract addresses (matching deployments/localhost.json)
+export const CONTRACT_ADDRESSES = {
+  AuditEngine: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_AUDIT_ENGINE_ADDRESS) || '0x610178dA211FEF7D417bC0e6FeD39F05609AD788',
+  ForensicTrail: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FORENSIC_TRAIL_ADDRESS) || '0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6',
+  InsiderActivityLog: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_INSIDER_LOG_ADDRESS) || '0x8A791620dd6260079BF849Dc5567aDC3F2FdC318',
+  MultiSigApproval: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MULTISIG_ADDRESS) || '0xa513E6E4b8f2a923D98304ec87F64353C4D5C853',
+  RoleManager: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ROLE_MANAGER_ADDRESS) || '0x0165878A594ca255338adfa4d48449f69242Eb8F',
+  ComplianceRules: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_COMPLIANCE_RULES_ADDRESS) || '0x5FbDB2315678afecb367f032d93F642f64180aa3',
+}
 
-  // View functions
-  'function admin() view returns (address)',
-  'function totalTransactions() view returns (uint256)',
-  'function getTransaction(uint256 txId) view returns (tuple(uint256 id, address sender, address receiver, uint256 amount, uint256 timestamp, bool isFlagged, string flagReason, uint8 status))',
-  'function getAllTransactions() view returns (tuple(uint256 id, address sender, address receiver, uint256 amount, uint256 timestamp, bool isFlagged, string flagReason, uint8 status)[])',
-  'function getFlaggedTransactions() view returns (uint256[])',
-  'function isBlacklisted(address addr) view returns (bool)',
-  'function isKYCVerified(address addr) view returns (bool)',
-  'function getDailyVolume(address addr, uint256 date) view returns (uint256)',
-  'function LARGE_TRANSACTION_THRESHOLD() view returns (uint256)',
-  'function DAILY_VOLUME_LIMIT() view returns (uint256)',
-  'function KYC_REQUIRED_THRESHOLD() view returns (uint256)',
+export const LOCAL_RPC_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_RPC_URL) || 'http://127.0.0.1:8545'
 
-  // Write functions
-  'function submitTransaction(address receiver, uint256 amount) returns (uint256)',
-  'function flagTransaction(uint256 txId, string reason)',
-  'function clearTransaction(uint256 txId)',
-  'function blacklistAddress(address addr)',
-  'function verifyKYC(address addr)',
-]
+export const CONTRACT_ADDRESS = CONTRACT_ADDRESSES.AuditEngine
 
-// Contract address - update after deployment
-export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || ''
+export const ROLES = {
+  SUPER_ADMIN: '0x0000000000000000000000000000000000000000000000000000000000000000',
+  AUDITOR_ROLE: ethers.keccak256(ethers.toUtf8Bytes('AUDITOR_ROLE')),
+  OPERATOR_ROLE: ethers.keccak256(ethers.toUtf8Bytes('OPERATOR_ROLE')),
+  REGULATOR_ROLE: ethers.keccak256(ethers.toUtf8Bytes('REGULATOR_ROLE')),
+}
+
+// Authoritative ABIs re-exported from generated artifacts
+export const AUDIT_ENGINE_ABI = AuditEngineABI
+export const FORENSIC_TRAIL_ABI = ForensicTrailABI
+export const INSIDER_LOG_ABI = InsiderActivityLogABI
+export const MULTISIG_ABI = MultiSigApprovalABI
+export const ROLE_MANAGER_ABI = RoleManagerABI
+export const COMPLIANCE_RULES_ABI = ComplianceRulesABI
+
+export { CONTRACT_ABIS, OperationResult, APP_MODE, isInstitutionalMode, isDemoMode }
 
 /**
- * Get a read-only provider (no wallet needed)
+ * Get read-only or local JSON-RPC provider.
  */
+export function getLocalProvider() {
+  return new ethers.JsonRpcProvider(LOCAL_RPC_URL)
+}
+
 export function getProvider() {
-  if (window.ethereum) {
+  if (typeof window !== 'undefined' && window.ethereum && window.__USE_METAMASK) {
     return new ethers.BrowserProvider(window.ethereum)
   }
-  // Fallback to local hardhat node
-  return new ethers.JsonRpcProvider(
-    import.meta.env.VITE_RPC_URL || 'http://127.0.0.1:8545'
-  )
+  return getLocalProvider()
 }
 
-/**
- * Get contract instance (read-only)
- */
+export function getContractInstance(name, providerOrSigner) {
+  const address = CONTRACT_ADDRESSES[name]
+  const abi = CONTRACT_ABIS[name] || AUDIT_ENGINE_ABI
+  return new ethers.Contract(address, abi, providerOrSigner)
+}
+
 export function getContract(provider) {
-  return new ethers.Contract(CONTRACT_ADDRESS, AUDIT_ENGINE_ABI, provider)
+  return getContractInstance('AuditEngine', provider)
 }
 
-/**
- * Get contract instance with signer (write operations)
- */
-export async function getSignedContract() {
-  const provider = await getProvider()
-  const signer = await provider.getSigner()
-  return new ethers.Contract(CONTRACT_ADDRESS, AUDIT_ENGINE_ABI, signer)
-}
-
-/**
- * Connect MetaMask wallet
- */
-export async function connectWallet() {
-  if (!window.ethereum) {
-    throw new Error('MetaMask not installed. Please install MetaMask.')
+export async function getSignedContract(name = 'AuditEngine') {
+  if (typeof window !== 'undefined' && window.ethereum && window.__USE_METAMASK) {
+    const provider = new ethers.BrowserProvider(window.ethereum)
+    const signer = await provider.getSigner()
+    return getContractInstance(name, signer)
   }
-  const provider = new ethers.BrowserProvider(window.ethereum)
-  await provider.send('eth_requestAccounts', [])
-  const signer = await provider.getSigner()
-  return {
-    provider,
-    signer,
-    address: await signer.getAddress(),
+
+  if (isInstitutionalMode()) {
+    throw new Error(
+      'Institutional Mode: Unlocked signer #0 is prohibited in institutional mode. ' +
+      'Please connect an authorized hardware or Web3 institutional signer.'
+    )
   }
+
+  // Use local Hardhat node's unlocked Signer #0 for local demo
+  const localProvider = getLocalProvider()
+  const signer = await localProvider.getSigner(0)
+  return getContractInstance(name, signer)
 }
 
 /**
- * Format amount from wei to ETH string
+ * Connect wallet: Supports MetaMask if requested, otherwise connects directly to Hardhat local node.
+ * In institutional mode, connection failure strictly halts and NEVER falls back to simulated identity.
  */
+export async function connectWallet(preferMetaMask = false) {
+  if (preferMetaMask && typeof window !== 'undefined' && window.ethereum) {
+    window.__USE_METAMASK = true
+    const provider = new ethers.BrowserProvider(window.ethereum)
+    await provider.send('eth_requestAccounts', [])
+    const signer = await provider.getSigner()
+    const address = await signer.getAddress()
+    return {
+      provider,
+      signer,
+      address,
+      isLocalNode: false,
+      label: `MetaMask (${shortAddress(address)})`,
+    }
+  }
+
+  // Connect to live local Hardhat node
+  try {
+    const localProvider = getLocalProvider()
+    const signer = await localProvider.getSigner(0)
+    const address = await signer.getAddress()
+    const balance = await localProvider.getBalance(address)
+    if (typeof window !== 'undefined') {
+      window.__USE_METAMASK = false
+    }
+
+    return {
+      provider: localProvider,
+      signer,
+      address,
+      balance: ethers.formatEther(balance),
+      isLocalNode: true,
+      label: `Hardhat Node Signer #0 (${shortAddress(address)} - 10,000 ETH)`,
+    }
+  } catch (err) {
+    if (isInstitutionalMode()) {
+      throw new Error(`Institutional connection failed: ${err.message}. Simulated fallback is disabled in institutional mode.`)
+    }
+
+    console.warn('[Contract] Local node connection failed, using demo simulated wallet:', err.message)
+    return {
+      provider: null,
+      signer: null,
+      ...DEMO_FALLBACK_WALLET
+    }
+  }
+}
+
 export function formatAmount(wei) {
+  if (!wei) return '0.0000'
   return ethers.formatEther(wei)
 }
 
-/**
- * Parse amount from ETH to wei
- */
 export function parseAmount(eth) {
+  if (!eth || isNaN(eth)) return ethers.parseEther('0')
   return ethers.parseEther(eth.toString())
 }
 
-/**
- * Format timestamp to readable date
- */
 export function formatTimestamp(timestamp) {
-  return new Date(Number(timestamp) * 1000).toLocaleString('en-IQ')
+  if (!timestamp) return 'N/A'
+  return new Date(Number(timestamp) * 1000).toLocaleString('en-US', {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  })
 }
 
-/**
- * Shorten address for display
- */
 export function shortAddress(address) {
   if (!address) return ''
   return `${address.slice(0, 6)}...${address.slice(-4)}`
