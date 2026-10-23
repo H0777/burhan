@@ -12,7 +12,7 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
     POLICY_CHANGE: 1,
     EMERGENCY_UNPAUSE: 2,
     ROLE_CHANGE: 3,
-    GOVERNANCE_CONFIG: 4,
+    SYSTEM_CONFIG: 4,
   };
 
   const ProposalStatus = {
@@ -23,6 +23,13 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
     EXPIRED: 4,
     CANCELLED: 5,
   };
+
+  const DAY = 86_400n;
+  const TTL = 259_200n;
+
+  async function setNextBlockTimestamp(ts) {
+    await ethers.provider.send("evm_setNextBlockTimestamp", [Number(ts)]);
+  }
 
   beforeEach(async function () {
     system = await deploySystemFixture();
@@ -43,38 +50,40 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
   describe("Proposal Creation & Typed Action Integrity", function () {
     it("should allow authorized participant (AUDITOR) to create a structured proposal", async function () {
       const target = await auditEngine.getAddress();
-      const callData = auditEngine.interface.encodeFunctionData("emergencyUnpause", [1]);
-      const reasonHash = ethers.id("Unpause engine after incident review");
+      const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [1]);
+      const description = "Unpause engine after incident review";
 
       const tx = await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        description
       );
 
       await expect(tx)
         .to.emit(multiSig, "ProposalCreated")
-        .withArgs(1, ProposalType.EMERGENCY_UNPAUSE, auditor1.address, target, reasonHash);
+        .withArgs(1, ProposalType.EMERGENCY_UNPAUSE, auditor1.address, target, description);
 
       const prop = await multiSig.getProposal(1);
       expect(prop.proposalType).to.equal(ProposalType.EMERGENCY_UNPAUSE);
       expect(prop.target).to.equal(target);
       expect(prop.status).to.equal(ProposalStatus.PENDING);
       expect(prop.proposer).to.equal(auditor1.address);
+      // R03: protocol-wide TTL and schedule
+      expect(prop.expiresAt).to.equal(prop.createdAt + TTL);
+      expect(prop.notBefore).to.equal(prop.createdAt); // EMERGENCY_UNPAUSE: delay 0
     });
 
     it("should reject proposal creation by unauthorized outsider or OPERATOR", async function () {
       const target = await auditEngine.getAddress();
       const callData = "0x";
-      const reasonHash = ethers.id("Malicious proposal");
 
       await expect(
         multiSig.connect(outsider).createProposal(
           ProposalType.POLICY_CHANGE,
           target,
           callData,
-          reasonHash
+          "Malicious proposal"
         )
       ).to.be.revertedWith("MultiSig: caller not authorized to participate");
 
@@ -83,32 +92,33 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
           ProposalType.POLICY_CHANGE,
           target,
           callData,
-          reasonHash
+          "Malicious proposal"
         )
       ).to.be.revertedWith("MultiSig: caller not authorized to participate");
     });
 
     it("should reject proposal creation with zero address target or empty target code", async function () {
-      const callData = "0x";
-      const reasonHash = ethers.id("Zero target proposal");
+      const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [1]);
 
+      // R03: the closed action table rejects every target that is not the
+      // registered AuditEngine — including the zero address and EOAs.
       await expect(
         multiSig.connect(auditor1).createProposal(
-          ProposalType.POLICY_CHANGE,
+          ProposalType.EMERGENCY_UNPAUSE,
           ethers.ZeroAddress,
           callData,
-          reasonHash
+          "Zero target proposal"
         )
-      ).to.be.revertedWith("MultiSig: target must be an active contract");
+      ).to.be.revertedWith("MultiSig: forbidden target for proposal type");
 
       await expect(
         multiSig.connect(auditor1).createProposal(
-          ProposalType.POLICY_CHANGE,
-          outsider.address, // EOA has no code
+          ProposalType.EMERGENCY_UNPAUSE,
+          outsider.address, // EOA target
           callData,
-          reasonHash
+          "EOA target proposal"
         )
-      ).to.be.revertedWith("MultiSig: target must be an active contract");
+      ).to.be.revertedWith("MultiSig: forbidden target for proposal type");
     });
   });
 
@@ -119,14 +129,13 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
 
     beforeEach(async function () {
       target = await auditEngine.getAddress();
-      callData = auditEngine.interface.encodeFunctionData("emergencyUnpause", [1]);
-      const reasonHash = ethers.id("Emergency unpause request");
+      callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [1]);
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        "Emergency unpause request"
       );
       proposalId = 1;
     });
@@ -175,9 +184,10 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
     it("should reject duplicate approval from the same participant", async function () {
       await multiSig.connect(admin).approveProposal(proposalId);
 
+      // R03: the vote dedup is identity-scoped (participant-level)
       await expect(
         multiSig.connect(admin).approveProposal(proposalId)
-      ).to.be.revertedWith("MultiSig: caller has already voted");
+      ).to.be.revertedWith("MultiSig: participant has already voted");
     });
   });
 
@@ -191,13 +201,12 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
       // 2. Create proposal to unpause with correct current epoch
       const target = await auditEngine.getAddress();
       const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [currentEpoch]);
-      const reasonHash = ethers.id("Unpause incident cleared");
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        "Unpause incident cleared"
       );
 
       // 3. Approve by 2 distinct participants
@@ -224,13 +233,12 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
       // 2. Create and approve proposal
       const target = await auditEngine.getAddress();
       const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [currentEpoch]);
-      const reasonHash = ethers.id("Unpause proposal 1");
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        "Unpause proposal 1"
       );
       await multiSig.connect(admin).approveProposal(1);
       await multiSig.connect(auditor2).approveProposal(1);
@@ -259,13 +267,12 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
       // Calling executeEmergencyUnpause with wrong epoch causes target to revert!
       const wrongEpoch = 999;
       const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [wrongEpoch]);
-      const reasonHash = ethers.id("Wrong epoch unpause");
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        "Wrong epoch unpause"
       );
       await multiSig.connect(admin).approveProposal(1);
       await multiSig.connect(auditor2).approveProposal(1);
@@ -275,7 +282,8 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
         multiSig.connect(admin).executeProposal(1)
       ).to.be.revertedWith("AuditEngine: invalid pause epoch");
 
-      // Verify proposal remains in APPROVED status, not EXECUTED
+      // Verify proposal remains in APPROVED status, not EXECUTED (and not
+      // permanently consumed — it stays executable until expiry)
       const prop = await multiSig.getProposal(1);
       expect(prop.status).to.equal(ProposalStatus.APPROVED);
     });
@@ -285,13 +293,12 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
     it("should invalidate previous votes if an approver's role was revoked before execution", async function () {
       const target = await auditEngine.getAddress();
       const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [0]);
-      const reasonHash = ethers.id("Unpause proposal");
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        "Unpause proposal"
       );
 
       // Admin and Auditor2 approve
@@ -302,6 +309,7 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
       // revokeRole is onlyGovernance (the multiSig contract), so a ROLE_CHANGE
       // proposal must target roleManager and be executed atomically. revokeRole
       // bumps auditor2's authorization generation, making their earlier approval stale.
+      // (R03: ROLE_CHANGE waits the 86,400s timelock before execution.)
       const revokeCalldata = roleManager.interface.encodeFunctionData("revokeRole", [
         auditor2.address,
         "R01: auditor2 authorization revoked before execution",
@@ -310,10 +318,12 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
         ProposalType.ROLE_CHANGE,
         await roleManager.getAddress(),
         revokeCalldata,
-        ethers.id("Revoke auditor2 role")
+        "Revoke auditor2 role"
       );
       await multiSig.connect(admin).approveProposal(2);
       await multiSig.connect(auditor2).approveProposal(2);
+      const revokeProposal = await multiSig.getProposal(2);
+      await setNextBlockTimestamp(revokeProposal.notBefore);
       await multiSig.connect(admin).executeProposal(2);
       expect(await roleManager.getRole(auditor2.address)).to.equal(0); // Role.NONE
 
@@ -326,20 +336,19 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
     it("should reject execution if proposal expiresAt has elapsed", async function () {
       const target = await auditEngine.getAddress();
       const callData = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [0]);
-      const reasonHash = ethers.id("Expiring proposal");
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        reasonHash
+        "Expiring proposal"
       );
       await multiSig.connect(admin).approveProposal(1);
       await multiSig.connect(auditor2).approveProposal(1);
 
-      // Advance time by 25 hours (TTL is 24 hours)
-      await ethers.provider.send("evm_increaseTime", [25 * 3600]);
-      await ethers.provider.send("evm_mine");
+      // R03: TTL is 259,200s; at now >= expiresAt execution fails.
+      const prop = await multiSig.getProposal(1);
+      await setNextBlockTimestamp(prop.expiresAt);
 
       await expect(
         multiSig.connect(admin).executeProposal(1)
@@ -360,15 +369,14 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
         txId,
         operator.address,
         auditor2.address,
-        "Legitimate large institutional transfer"
+        "Legitimate large institutional transfer",
       ]);
-      const reasonHash = ethers.id("Override warning for TX 1");
 
       await multiSig.connect(auditor1).createProposal(
         ProposalType.OVERRIDE_WARNING,
         target,
         callData,
-        reasonHash
+        "Override warning for TX 1"
       );
 
       // Auditor2 is an authorized AUDITOR, but is the beneficiary/receiver of this transaction!
@@ -392,7 +400,7 @@ describe("Governance Execution & Atomic Approvals (T03)", function () {
         ProposalType.EMERGENCY_UNPAUSE,
         target,
         callData,
-        ethers.id("Unpause epoch 1")
+        "Unpause epoch 1"
       );
       await multiSig.connect(admin).approveProposal(1);
       await multiSig.connect(auditor2).approveProposal(1);

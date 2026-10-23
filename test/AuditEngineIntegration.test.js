@@ -2,6 +2,15 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
+// Hand-built interface of the REMOVED parallel-admin functions: the R03
+// production ABI no longer declares them, so raw calldata is the only way to
+// probe that the bypass is really gone (same technique as NoTestBackdoor).
+const LEGACY_INTERFACE = new ethers.Interface([
+  "function overrideWarning(uint256,string)",
+  "function setPolicy(uint8)",
+  "function setCustomThresholds(uint256,uint256,uint256,uint256,uint256)",
+]);
+
 describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
   let auditEngine, roleManager, insiderLog;
   let admin, auditor, operator, user1, user2;
@@ -122,7 +131,7 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
     });
   });
 
-  describe("Insider Threat Logging & Warnings Override", function () {
+  describe("Insider Threat Logging & Warnings Override (R03: bypass blocked)", function () {
     beforeEach(async function () {
       await auditEngine.connect(admin).integrateContracts(
         await roleManager.getAddress(),
@@ -133,46 +142,48 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
       await auditEngine.connect(user1).submitTransaction(user2.address, LARGE_AMOUNT);
     });
 
-    it("Should allow AUDITOR to override a flagged transaction and log insider activity", async function () {
-      const txDataBefore = await auditEngine.getTransaction(1);
-      expect(txDataBefore.isFlagged).to.equal(true);
-      expect(txDataBefore.status).to.equal(2); // FLAGGED
+    it("AUDITOR cannot clear a warning directly: the legacy overrideWarning path is gone", async function () {
+      const auditEngineAddress = await auditEngine.getAddress();
+      const legacyCalldata = LEGACY_INTERFACE.encodeFunctionData("overrideWarning", [
+        1,
+        "Customer identity re-verified by audit team",
+      ]);
 
+      // The direct (non-governance) override must revert — R03 removed the path.
       await expect(
-        auditEngine.connect(auditor).overrideWarning(1, "Customer identity re-verified by audit team")
-      )
-        .to.emit(auditEngine, "OverrideAttempted")
-        .and.to.emit(auditEngine, "TransactionCleared");
+        auditor.sendTransaction({ to: auditEngineAddress, data: legacyCalldata })
+      ).to.be.reverted;
 
+      // State untouched: still FLAGGED and nothing was logged.
       const txDataAfter = await auditEngine.getTransaction(1);
-      expect(txDataAfter.isFlagged).to.equal(false);
-      expect(txDataAfter.status).to.equal(1); // CLEARED
-
-      // Verify that InsiderActivityLog captured the override
-      expect(await insiderLog.totalActivities()).to.equal(1);
-      const act = await insiderLog.getActivity(1);
-      expect(act.operator).to.equal(auditor.address);
-      expect(act.activityType).to.equal(1); // TRANSACTION_OVERRIDE
-      expect(act.relatedTxId).to.equal(1);
-      expect(act.relatedAddress).to.equal(user2.address);
-      expect(act.details).to.equal("Customer identity re-verified by audit team");
+      expect(txDataAfter.isFlagged).to.equal(true);
+      expect(txDataAfter.status).to.equal(2); // FLAGGED
+      expect(await insiderLog.totalActivities()).to.equal(0);
     });
 
-    it("OPERATOR cannot override warning", async function () {
+    it("OPERATOR cannot override warning (raw legacy calldata reverts too)", async function () {
+      const auditEngineAddress = await auditEngine.getAddress();
+      const legacyCalldata = LEGACY_INTERFACE.encodeFunctionData("overrideWarning", [
+        1,
+        "Unauthorized operator override",
+      ]);
       await expect(
-        auditEngine.connect(operator).overrideWarning(1, "Unauthorized operator override")
-      ).to.be.revertedWith("AuditEngine: insufficient role");
+        operator.sendTransaction({ to: auditEngineAddress, data: legacyCalldata })
+      ).to.be.reverted;
+      expect((await auditEngine.getTransaction(1)).status).to.equal(2); // still FLAGGED
     });
   });
 
-  describe("Configurable Compliance Policies", function () {
-    it("Should switch from IRAQ_CBI to GLOBAL_FATF policy", async function () {
+  describe("Configurable Compliance Policies (R03: governance-only execution)", function () {
+    it("Should switch from IRAQ_CBI to GLOBAL_FATF policy via executePolicyChange", async function () {
       // Default is IRAQ_CBI (threshold: 10,000 ETH)
       expect(await auditEngine.activePolicy()).to.equal(PolicyProfile.IRAQ_CBI);
       expect(await auditEngine.largeTransactionThreshold()).to.equal(ethers.parseEther("10000"));
 
-      // Switch to GLOBAL_FATF
-      await expect(auditEngine.connect(admin).setPolicy(PolicyProfile.GLOBAL_FATF))
+      // In this standalone fixture governance IS the admin wallet, so the
+      // governance-only execute interface is callable directly here (in the
+      // integrated system only the MultiSig coordinator reaches it).
+      await expect(auditEngine.connect(admin).executePolicyChange(PolicyProfile.GLOBAL_FATF))
         .to.emit(auditEngine, "PolicyChanged")
         .withArgs(
           PolicyProfile.GLOBAL_FATF,
@@ -200,8 +211,8 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
       expect(tx.isFlagged).to.equal(false);
       expect(tx.status).to.equal(1); // CLEARED
 
-      // Now switch to GLOBAL_FATF (threshold 8,000)
-      await auditEngine.connect(admin).setPolicy(PolicyProfile.GLOBAL_FATF);
+      // Now switch to GLOBAL_FATF (threshold 8,000) via the governance path
+      await auditEngine.connect(admin).executePolicyChange(PolicyProfile.GLOBAL_FATF);
 
       // Under FATF, 9,000 is flagged as LARGE_TRANSACTION
       await auditEngine.connect(user1).submitTransaction(user2.address, amount9k);
@@ -210,8 +221,8 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
       expect(tx.flagReason).to.include("LARGE_TRANSACTION");
     });
 
-    it("Should allow setting custom compliance thresholds", async function () {
-      await auditEngine.connect(admin).setCustomThresholds(
+    it("Should allow setting custom compliance thresholds via executeCustomThresholds", async function () {
+      await auditEngine.connect(admin).executeCustomThresholds(
         ethers.parseEther("2000"),  // largeThreshold
         ethers.parseEther("10000"), // dailyLimit
         5,                          // maxDaily
@@ -224,10 +235,35 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
       expect(await auditEngine.maxDailyTransactions()).to.equal(5);
     });
 
-    it("Should revert if non-admin attempts policy change", async function () {
+    it("Should revert if non-governance attempts policy change, and the legacy setPolicy path is gone", async function () {
       await expect(
-        auditEngine.connect(auditor).setPolicy(PolicyProfile.GLOBAL_FATF)
-      ).to.be.revertedWith("AuditEngine: caller is not admin");
+        auditEngine.connect(auditor).executePolicyChange(PolicyProfile.GLOBAL_FATF)
+      ).to.be.revertedWith("AuditEngine: caller is not governance");
+
+      // The legacy direct setPolicy/setCustomThresholds selectors must be
+      // unreachable for everyone (governance included).
+      const auditEngineAddress = await auditEngine.getAddress();
+      await expect(
+        admin.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("setPolicy", [PolicyProfile.GLOBAL_FATF]),
+        })
+      ).to.be.reverted;
+      await expect(
+        admin.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("setCustomThresholds", [
+            ethers.parseEther("2000"),
+            ethers.parseEther("10000"),
+            5,
+            ethers.parseEther("15000"),
+            ethers.parseEther("1000"),
+          ]),
+        })
+      ).to.be.reverted;
+
+      // Policy untouched by the blocked attempts.
+      expect(await auditEngine.activePolicy()).to.equal(PolicyProfile.IRAQ_CBI);
     });
   });
 });

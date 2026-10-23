@@ -33,7 +33,7 @@ const ProposalType = {
   POLICY_CHANGE: 1,
   EMERGENCY_UNPAUSE: 2,
   ROLE_CHANGE: 3,
-  GOVERNANCE_CONFIG: 4,
+  SYSTEM_CONFIG: 4,
 };
 
 // Fixed institutional roster IDs — deterministic fixture values, deliberately
@@ -65,7 +65,7 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
     const authority = signers[0];
 
     const MultiSigApproval = await ethers.getContractFactory("MultiSigApproval");
-    const multiSig = await MultiSigApproval.deploy(authority.address, 2, 24);
+    const multiSig = await MultiSigApproval.deploy(authority.address, 2);
     await multiSig.waitForDeployment();
 
     // RoleManager is deployed by `authority`, so `roleManager.deployer()`
@@ -103,7 +103,8 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
   }
 
   // Governance-only rotation: must be driven through an executed ROLE_CHANGE
-  // proposal because governance is the MultiSig contract itself.
+  // proposal because governance is the MultiSig contract itself. R03: the
+  // ROLE_CHANGE timelock (86,400s) must elapse before execution.
   async function rotateViaGovernance(
     system,
     { proposer, approvers, executor },
@@ -128,11 +129,15 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
     for (const approver of approvers) {
       await system.multiSig.connect(approver).approveProposal(proposalId);
     }
+    const proposal = await system.multiSig.getProposal(proposalId);
+    await ethers.provider.send("evm_setNextBlockTimestamp", [Number(proposal.notBefore)]);
     await system.multiSig.connect(executor).executeProposal(proposalId);
   }
 
+  // R03: business hours moved to the SYSTEM_CONFIG closed action on the
+  // AuditEngine wrapper (86,400s delay before execution).
   function policyProposalCalldata(system) {
-    return system.insiderLog.interface.encodeFunctionData("setBusinessHours", [9, 18]);
+    return system.auditEngine.interface.encodeFunctionData("setBusinessHours", [9, 18]);
   }
 
   // ==================================================================
@@ -442,8 +447,8 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
       await system.multiSig
         .connect(p2)
         .createProposal(
-          ProposalType.POLICY_CHANGE,
-          await system.insiderLog.getAddress(),
+          ProposalType.SYSTEM_CONFIG,
+          await system.auditEngine.getAddress(),
           policyProposalCalldata(system),
           ethers.id("Adjust business hours")
         );
@@ -497,8 +502,8 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
       await system.multiSig
         .connect(p2)
         .createProposal(
-          ProposalType.POLICY_CHANGE,
-          await system.insiderLog.getAddress(),
+          ProposalType.SYSTEM_CONFIG,
+          await system.auditEngine.getAddress(),
           policyProposalCalldata(system),
           ethers.id("Quorum without the absent voter")
         );
@@ -513,7 +518,9 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
       expect(prop.approvalCount).to.equal(2n);
       expect(prop.status).to.equal(1n); // APPROVED
 
-      // Executable without the absent participant.
+      // Executable without the absent participant — after the 86,400s
+      // SYSTEM_CONFIG timelock elapses.
+      await ethers.provider.send("evm_setNextBlockTimestamp", [Number(prop.notBefore)]);
       await expect(system.multiSig.connect(p1).executeProposal(proposalId))
         .to.emit(system.multiSig, "ProposalExecuted");
       expect((await system.multiSig.getProposal(proposalId)).status).to.equal(2n); // EXECUTED
@@ -586,8 +593,8 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
       await system.multiSig
         .connect(p2)
         .createProposal(
-          ProposalType.POLICY_CHANGE,
-          await system.insiderLog.getAddress(),
+          ProposalType.SYSTEM_CONFIG,
+          await system.auditEngine.getAddress(),
           policyProposalCalldata(system),
           ethers.id("Alias vote test proposal")
         );

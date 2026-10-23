@@ -283,11 +283,20 @@ contract InsiderActivityLog {
     // ============================================================
 
     /**
-     * @notice Update business hours (governance only, UTC context)
+     * @notice Update business hours (UTC context)
+     * @dev R03: reachable directly by governance, or through the AuditEngine
+     *      governance wrapper (SYSTEM_CONFIG closed action) — the AuditEngine
+     *      is the governance-designated recorder, so recorders share the gate.
+     *      Recorders can only ever be installed by governance (bootstrap
+     *      configure or an approved SYSTEM_CONFIG setRecorder proposal).
      * @param _start Start hour (0-23 UTC)
      * @param _end End hour (0-23 UTC)
      */
-    function setBusinessHours(uint8 _start, uint8 _end) external onlyGovernance {
+    function setBusinessHours(uint8 _start, uint8 _end) external {
+        require(
+            msg.sender == governance || isRecorder[msg.sender],
+            "InsiderActivityLog: caller is not governance"
+        );
         require(_start <= 24 && _end <= 24, "InsiderLog: invalid hours");
         require(_start < _end, "InsiderLog: start must be before end");
         businessHourStart = _start;

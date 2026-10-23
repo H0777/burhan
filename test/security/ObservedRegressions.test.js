@@ -54,8 +54,7 @@ const { deploySystemFixture } = require("../helpers/deploySystem");
 
     // 2. Create proposal to unpause (ProposalType.EMERGENCY_UNPAUSE is index 2)
     const unpauseCalldata = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [1]);
-    const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Unpause proposal"));
-    await multiSig.connect(auditor).createProposal(2, await auditEngine.getAddress(), unpauseCalldata, reasonHash);
+    await multiSig.connect(auditor).createProposal(2, await auditEngine.getAddress(), unpauseCalldata, "Unpause proposal");
     // Approve proposal by admin (1st approval) and auditor2 (2nd approval)
     await multiSig.connect(admin).approveProposal(1);
     await multiSig.connect(auditor2).approveProposal(1);

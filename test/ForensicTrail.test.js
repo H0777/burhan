@@ -195,4 +195,73 @@ describe("ForensicTrail", function () {
       ).to.be.revertedWith("ForensicTrail: already closed");
     });
   });
+
+  // ============================================================
+  // R03: ATTESTED MANIFEST COMMITMENT & CASE REFERENCES
+  // (deep behavioral suite: test/forensics/ManifestCommitment.test.js)
+  // ============================================================
+
+  describe("R03: Attested Evidence Manifest Commitment", function () {
+    beforeEach(async function () {
+      await forensicTrail.connect(investigator).createIncident(
+        ethers.keccak256(ethers.toUtf8Bytes("Attested case")),
+        ethers.keccak256(ethers.toUtf8Bytes("MEDIUM"))
+      );
+    });
+
+    it("Should anchor the manifest digest in the same transaction and expose it via lookup", async function () {
+      const requestId = ethers.keccak256(ethers.toUtf8Bytes("att-req-1"));
+      const manifestDigest = ethers.keccak256(ethers.toUtf8Bytes("manifest-1"));
+
+      await expect(
+        forensicTrail.connect(investigator).submitEvidenceAttested(
+          1,
+          requestId,
+          ethers.keccak256(ethers.toUtf8Bytes("KYC_DOSSIER")),
+          ethers.keccak256(ethers.toUtf8Bytes("Notarized KYC bundle")),
+          ethers.sha256(ethers.toUtf8Bytes("kyc.tar")),
+          manifestDigest
+        )
+      ).to.emit(forensicTrail, "EvidenceManifestAnchored");
+
+      expect(await forensicTrail.getManifestDigest(requestId)).to.equal(manifestDigest);
+      expect(await forensicTrail.totalEvidence()).to.equal(1);
+    });
+
+    it("Should reject a zero manifest digest", async function () {
+      await expect(
+        forensicTrail.connect(investigator).submitEvidenceAttested(
+          1,
+          ethers.keccak256(ethers.toUtf8Bytes("att-req-2")),
+          ethers.keccak256(ethers.toUtf8Bytes("KYC_DOSSIER")),
+          ethers.keccak256(ethers.toUtf8Bytes("Notarized KYC bundle")),
+          ethers.sha256(ethers.toUtf8Bytes("kyc.tar")),
+          ethers.ZeroHash
+        )
+      ).to.be.revertedWith("ForensicTrail: manifest digest required");
+    });
+  });
+
+  describe("R03: Case-Referenced Incidents", function () {
+    it("Should return the same incident for the same case reference and conflict on different metadata", async function () {
+      const caseRef = ethers.keccak256(ethers.toUtf8Bytes("case-ref-1"));
+      const titleHash = ethers.keccak256(ethers.toUtf8Bytes("Case-referenced incident"));
+      const severityHash = ethers.keccak256(ethers.toUtf8Bytes("HIGH"));
+
+      await forensicTrail.connect(investigator).createIncidentForCase(caseRef, titleHash, severityHash);
+      expect(await forensicTrail.getIncidentByCaseReference(caseRef)).to.equal(1);
+      expect(await forensicTrail.totalIncidents()).to.equal(1);
+
+      // Another authorized writer, same reference + metadata: same incident.
+      await forensicTrail.connect(auditor).createIncidentForCase(caseRef, titleHash, severityHash);
+      expect(await forensicTrail.totalIncidents()).to.equal(1);
+
+      // Different metadata for the same reference: conflict.
+      await expect(
+        forensicTrail
+          .connect(auditor)
+          .createIncidentForCase(caseRef, ethers.keccak256(ethers.toUtf8Bytes("Different")), severityHash)
+      ).to.be.revertedWith("ForensicTrail: case reference metadata conflict");
+    });
+  });
 });

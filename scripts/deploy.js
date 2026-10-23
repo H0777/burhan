@@ -29,10 +29,11 @@ async function main() {
   const chainId = Number(network.chainId);
   const institutionId = process.env.INSTITUTION_ID || "INST-CENTRAL-DEMO";
 
-  // 1. Deploy MultiSigApproval (deployer is temporary bootstrap authority, 2 required approvals, 24h TTL)
+  // 1. Deploy MultiSigApproval (deployer is temporary bootstrap authority, 2 required
+  //    approvals; TTL is the fixed 259,200s protocol constant since R03)
   console.log("1. Deploying MultiSigApproval...");
   const MultiSigApproval = await hre.ethers.getContractFactory("MultiSigApproval");
-  const multiSig = await MultiSigApproval.deploy(deployer.address, 2, 24);
+  const multiSig = await MultiSigApproval.deploy(deployer.address, 2);
   await multiSig.waitForDeployment();
   const multiSigAddress = await multiSig.getAddress();
   console.log(`   -> MultiSigApproval deployed at: ${multiSigAddress}`);

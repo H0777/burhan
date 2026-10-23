@@ -18,7 +18,7 @@ describe("AuditEngine Enterprise & Forensic Enhancements (5 Features)", function
     POLICY_CHANGE: 1,
     EMERGENCY_UNPAUSE: 2,
     ROLE_CHANGE: 3,
-    GOVERNANCE_CONFIG: 4,
+    SYSTEM_CONFIG: 4,
   };
 
   const PolicyProfile = {
@@ -31,7 +31,18 @@ describe("AuditEngine Enterprise & Forensic Enhancements (5 Features)", function
   const LARGE_AMOUNT = ethers.parseEther("15000");
   const CRITICAL_LARGE_AMOUNT = ethers.parseEther("25000"); // 2.5x threshold (> 2x triggers automated forensic incident)
 
-const { deploySystemFixture } = require("./helpers/deploySystem");
+  // Hand-built interface of the REMOVED parallel-admin functions (R03): raw
+  // calldata proves the bypass is gone without needing the ABI to declare it.
+  const LEGACY_INTERFACE = new ethers.Interface([
+    "function overrideWarning(uint256,string)",
+    "function emergencyUnpause(uint256)",
+    "function setMultiSigOverrideEnforcement(bool)",
+    "function setPolicyTimelockDelay(uint256)",
+    "function proposePolicyChange(uint8)",
+    "function setPolicy(uint8)",
+  ]);
+
+  const { deploySystemFixture } = require("./helpers/deploySystem");
 
   beforeEach(async function () {
     const signers = await ethers.getSigners();
@@ -49,8 +60,12 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
     operator = system.operator;
   });
 
+  async function setNextBlockTimestamp(ts) {
+    await ethers.provider.send("evm_setNextBlockTimestamp", [Number(ts)]);
+  }
+
   // ============================================================
-  // FEATURE 1: ENFORCED MULTISIG BRIDGE
+  // FEATURE 1: ENFORCED MULTISIG BRIDGE (R03: unified coordinator)
   // ============================================================
 
   describe("Feature 1: Enforced MultiSig Bridge", function () {
@@ -62,33 +77,30 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       flaggedTxId = 1;
     });
 
-    it("Should allow overriding a flagged transaction via MultiSig proposal approval", async function () {
-      // Encode txId 1 as data for the proposal
-      const abiCoder = new ethers.AbiCoder();
-      const encodedData = abiCoder.encode(["uint256"], [flaggedTxId]);
+    it("Should allow overriding a flagged transaction via an executed MultiSig proposal", async function () {
+      const txn = await auditEngine.getTransaction(flaggedTxId);
+      const callData = auditEngine.interface.encodeFunctionData("executeOverrideWarning", [
+        flaggedTxId,
+        txn.sender,
+        txn.receiver,
+        "Customer provided source of funds documentation",
+      ]);
 
-      // Propose in MultiSig by auditor1
-      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Customer provided source of funds documentation"));
+      // Propose in MultiSig by auditor1 (not a transaction party)
       await multiSig.connect(auditor1).createProposal(
         ProposalType.OVERRIDE_WARNING,
         await auditEngine.getAddress(),
-        encodedData,
-        reasonHash
+        callData,
+        "Customer provided source of funds documentation"
       );
 
-      // Auditor2 and Admin approve proposal (reaches 2 required approvals)
-      await multiSig.connect(auditor2).approveProposal(1);
+      // Admin and auditor2 approve (reaches 2 required approvals)
       await multiSig.connect(admin).approveProposal(1);
+      await multiSig.connect(auditor2).approveProposal(1);
       expect(await multiSig.isApproved(1)).to.equal(true);
 
-      // Execute override on AuditEngine using the approved proposal
-      await expect(
-        auditEngine.connect(auditor1).overrideWarningWithMultiSig(
-          flaggedTxId,
-          1,
-          "Customer verified"
-        )
-      )
+      // Atomic execution through the coordinator clears the warning
+      await expect(multiSig.connect(admin).executeProposal(1))
         .to.emit(auditEngine, "OverrideAttempted")
         .and.to.emit(auditEngine, "TransactionCleared");
 
@@ -96,59 +108,81 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       expect(txData.isFlagged).to.equal(false);
       expect(txData.status).to.equal(1); // CLEARED
 
-      // Verify that evidence was appended to ForensicTrail
-      expect(await forensicTrail.totalIncidents()).to.be.greaterThan(0);
+      // The override is captured in the InsiderActivityLog
+      expect(await insiderLog.totalActivities()).to.be.greaterThan(0);
+      const activities = await insiderLog.getAllActivityIds();
+      const act = await insiderLog.getActivity(activities[activities.length - 1]);
+      expect(act.activityType).to.equal(1); // TRANSACTION_OVERRIDE
     });
 
-    it("Should revert if proposal is not yet approved in MultiSig", async function () {
-      const abiCoder = new ethers.AbiCoder();
-      const encodedData = abiCoder.encode(["uint256"], [flaggedTxId]);
+    it("Should revert execution if the proposal has not reached quorum yet", async function () {
+      const txn = await auditEngine.getTransaction(flaggedTxId);
+      const callData = auditEngine.interface.encodeFunctionData("executeOverrideWarning", [
+        flaggedTxId,
+        txn.sender,
+        txn.receiver,
+        "Pending approval",
+      ]);
 
-      // Only 1 approval (proposer only created it, no approvals yet)
-      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Pending approval"));
       await multiSig.connect(auditor1).createProposal(
         ProposalType.OVERRIDE_WARNING,
         await auditEngine.getAddress(),
-        encodedData,
-        reasonHash
+        callData,
+        "Pending approval"
       );
 
-      await expect(
-        auditEngine.connect(auditor1).overrideWarningWithMultiSig(
-          flaggedTxId,
-          1,
-          "Premature override attempt"
-        )
-      ).to.be.revertedWith("AuditEngine: proposal not approved by MultiSig");
-    });
-
-    it("Should revert if proposal targets a different transaction ID", async function () {
-      const abiCoder = new ethers.AbiCoder();
-      const encodedData = abiCoder.encode(["uint256"], [999]); // targeting tx 999
-
-      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Wrong tx"));
-      await multiSig.connect(auditor1).createProposal(
-        ProposalType.OVERRIDE_WARNING,
-        await auditEngine.getAddress(),
-        encodedData,
-        reasonHash
-      );
-      await multiSig.connect(auditor2).approveProposal(1);
+      // Only one approval so far: execution must fail
       await multiSig.connect(admin).approveProposal(1);
-
       await expect(
-        auditEngine.connect(auditor1).overrideWarningWithMultiSig(flaggedTxId, 1, "Mismatch")
-      ).to.be.revertedWith("AuditEngine: proposal txId mismatch");
+        multiSig.connect(auditor1).executeProposal(1)
+      ).to.be.revertedWith("MultiSig: proposal is not approved or already executed");
     });
 
-    it("Should enforce MultiSig if enforceMultiSigOverride is enabled", async function () {
-      await auditEngine.connect(admin).setMultiSigOverrideEnforcement(true);
-      expect(await auditEngine.enforceMultiSigOverride()).to.equal(true);
+    it("Should reject proposal creation when the parties do not match the transaction record", async function () {
+      const callData = auditEngine.interface.encodeFunctionData("executeOverrideWarning", [
+        flaggedTxId,
+        outsider.address, // fabricated sender
+        user2.address,
+        "Wrong parties",
+      ]);
 
-      // Direct overrideWarning should now be blocked
+      // R03: parties are validated against AuditEngine's own record at creation
       await expect(
-        auditEngine.connect(auditor1).overrideWarning(flaggedTxId, "Trying direct override")
-      ).to.be.revertedWith("AuditEngine: MultiSig approval required for overrides");
+        multiSig.connect(auditor1).createProposal(
+          ProposalType.OVERRIDE_WARNING,
+          await auditEngine.getAddress(),
+          callData,
+          "Wrong parties"
+        )
+      ).to.be.revertedWith("AuditEngine: transaction party mismatch");
+    });
+
+    it("Direct overrideWarning is permanently blocked — no enforcement flag to toggle anymore", async function () {
+      const auditEngineAddress = await auditEngine.getAddress();
+
+      // The enforcement toggle itself is gone (raw calldata reverts).
+      await expect(
+        admin.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("setMultiSigOverrideEnforcement", [true]),
+        })
+      ).to.be.reverted;
+
+      // The direct override reverts for an eligible auditor — the ONLY path is
+      // the coordinator.
+      await expect(
+        auditor1.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("overrideWarning", [
+            flaggedTxId,
+            "Trying direct override",
+          ]),
+        })
+      ).to.be.reverted;
+
+      const txData = await auditEngine.getTransaction(flaggedTxId);
+      expect(txData.isFlagged).to.equal(true);
+      expect(txData.status).to.equal(2); // FLAGGED
     });
   });
 
@@ -156,27 +190,47 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
   // FEATURE 2: SEPARATION OF DUTIES (SoD)
   // ============================================================
 
-  describe("Feature 2: Separation of Duties (SoD)", function () {
+  describe("Feature 2: Separation of Duties", function () {
     it("Should prevent auditor from overriding their own transaction as sender", async function () {
       // Auditor1 is the sender of a flagged transaction
       await auditEngine.connect(auditor1).submitTransaction(user2.address, LARGE_AMOUNT);
       const txId = 1;
 
-      // Auditor1 attempts to clear their own warning
+      // R03: the direct override path no longer exists at all — raw legacy
+      // calldata from the transaction party reverts.
       await expect(
-        auditEngine.connect(auditor1).overrideWarning(txId, "Self override attempt")
-      ).to.be.revertedWith("AuditEngine: SoD conflict - caller is transaction sender");
+        auditor1.sendTransaction({
+          to: await auditEngine.getAddress(),
+          data: LEGACY_INTERFACE.encodeFunctionData("overrideWarning", [txId, "Self override attempt"]),
+        })
+      ).to.be.reverted;
+      expect((await auditEngine.getTransaction(txId)).status).to.equal(2); // FLAGGED
     });
 
-    it("Should prevent auditor from overriding a transaction where they are the receiver", async function () {
-      // User1 sends to Auditor1
+    it("Should prevent a transaction party from approving the override of its own warning (identity-scoped)", async function () {
+      // User1 sends to Auditor1; auditor1 (receiver, enrolled AUDITOR) must not
+      // be able to approve the override proposal.
       await auditEngine.connect(user1).submitTransaction(auditor1.address, LARGE_AMOUNT);
       const txId = 1;
+      const txn = await auditEngine.getTransaction(txId);
 
-      // Auditor1 attempts to clear the transaction where they are recipient
+      const callData = auditEngine.interface.encodeFunctionData("executeOverrideWarning", [
+        txId,
+        txn.sender,
+        txn.receiver,
+        "Self recipient override",
+      ]);
+      await multiSig.connect(auditor2).createProposal(
+        ProposalType.OVERRIDE_WARNING,
+        await auditEngine.getAddress(),
+        callData,
+        "Self recipient override"
+      );
+
       await expect(
-        auditEngine.connect(auditor1).overrideWarning(txId, "Self recipient override")
-      ).to.be.revertedWith("AuditEngine: SoD conflict - caller is transaction receiver");
+        multiSig.connect(auditor1).approveProposal(1)
+      ).to.be.revertedWith("MultiSig: transaction sender/receiver cannot approve override");
+      expect((await multiSig.getProposal(1)).approvalCount).to.equal(0);
     });
 
     it("Should prevent auditor from blocking their own transaction as sender or receiver", async function () {
@@ -225,77 +279,69 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
   });
 
   // ============================================================
-  // FEATURE 4: TIMELOCK ON POLICY CHANGES
+  // FEATURE 4: TIMELOCK ON POLICY CHANGES (R03: coordinator-owned)
   // ============================================================
 
   describe("Feature 4: Timelock on Policy Changes", function () {
-    const ONE_DAY = 24 * 3600;
-
-    beforeEach(async function () {
-      // Set timelock delay to 24 hours
-      await auditEngine.connect(admin).setPolicyTimelockDelay(ONE_DAY);
-      expect(await auditEngine.policyTimelockDelay()).to.equal(ONE_DAY);
-    });
-
-    it("Should reject direct setPolicy when timelock is active", async function () {
-      await expect(
-        auditEngine.connect(admin).setPolicy(PolicyProfile.GLOBAL_FATF)
-      ).to.be.revertedWith("AuditEngine: timelock active - use proposePolicyChange");
-    });
-
-    it("Should propose policy change and enforce timelock delay before execution", async function () {
-      await expect(auditEngine.connect(admin).proposePolicyChange(PolicyProfile.GLOBAL_FATF))
-        .to.emit(auditEngine, "PolicyChangeProposed");
-
-      const pending = await auditEngine.pendingPolicyChange();
-      expect(pending.active).to.equal(true);
-      expect(pending.profile).to.equal(PolicyProfile.GLOBAL_FATF);
-
-      // Premature execution should revert
-      await expect(
-        auditEngine.connect(admin).executePolicyChange()
-      ).to.be.revertedWith("AuditEngine: timelock has not expired");
-
-      // Advance time by 25 hours
-      await ethers.provider.send("evm_increaseTime", [25 * 3600]);
-      await ethers.provider.send("evm_mine");
-
-      // Now execution succeeds
-      await expect(auditEngine.connect(admin).executePolicyChange())
-        .to.emit(auditEngine, "PolicyChangeExecuted");
-
-      expect(await auditEngine.activePolicy()).to.equal(PolicyProfile.GLOBAL_FATF);
-    });
-
-    it("Should allow immediate policy execution via MultiSig bypass", async function () {
-      await auditEngine.connect(admin).proposePolicyChange(PolicyProfile.GLOBAL_FATF);
-
-      // Create POLICY_CHANGE proposal in MultiSig
-      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Emergency policy change needed immediately"));
+    it("Should enforce the 86,400s coordinator timelock before a policy proposal executes", async function () {
+      const callData = auditEngine.interface.encodeFunctionData("executePolicyChange", [
+        PolicyProfile.GLOBAL_FATF,
+      ]);
       await multiSig.connect(auditor1).createProposal(
         ProposalType.POLICY_CHANGE,
         await auditEngine.getAddress(),
-        "0x",
-        reasonHash
+        callData,
+        "Switch to FATF policy"
       );
-      await multiSig.connect(auditor2).approveProposal(1);
       await multiSig.connect(admin).approveProposal(1);
+      await multiSig.connect(auditor2).approveProposal(1);
       expect(await multiSig.isApproved(1)).to.equal(true);
 
-      // Execute immediately using MultiSig bypass
-      await expect(auditEngine.connect(admin).executePolicyChangeWithMultiSig(1))
-        .to.emit(auditEngine, "PolicyChangeExecuted");
+      // Quorum reached, but the timelock has not elapsed.
+      await expect(
+        multiSig.connect(admin).executeProposal(1)
+      ).to.be.revertedWith("MultiSig: timelock active");
+
+      // Advance time by 24 hours
+      const prop = await multiSig.getProposal(1);
+      await setNextBlockTimestamp(prop.notBefore);
+      await expect(multiSig.connect(admin).executeProposal(1))
+        .to.emit(auditEngine, "PolicyChanged");
 
       expect(await auditEngine.activePolicy()).to.equal(PolicyProfile.GLOBAL_FATF);
     });
 
-    it("Should allow admin to cancel a proposed policy change", async function () {
-      await auditEngine.connect(admin).proposePolicyChange(PolicyProfile.GLOBAL_FATF);
-      await expect(auditEngine.connect(admin).cancelPolicyChange())
-        .to.emit(auditEngine, "PolicyChangeCancelled");
+    it("Should NOT allow immediate policy execution via a MultiSig bypass — governance-only, no parallel admin path", async function () {
+      const auditEngineAddress = await auditEngine.getAddress();
 
-      const pending = await auditEngine.pendingPolicyChange();
-      expect(pending.active).to.equal(false);
+      // The legacy admin paths (parallel timelock proposal + MultiSig bypass)
+      // are gone: their selectors revert for everyone.
+      await expect(
+        admin.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("proposePolicyChange", [PolicyProfile.GLOBAL_FATF]),
+        })
+      ).to.be.reverted;
+      await expect(
+        admin.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("setPolicy", [PolicyProfile.GLOBAL_FATF]),
+        })
+      ).to.be.reverted;
+      await expect(
+        admin.sendTransaction({
+          to: auditEngineAddress,
+          data: LEGACY_INTERFACE.encodeFunctionData("setPolicyTimelockDelay", [86_400]),
+        })
+      ).to.be.reverted;
+
+      // SUPER_ADMIN cannot call the governance-only execute interface either:
+      // after bootstrap the coordinator is governance.
+      await expect(
+        auditEngine.connect(admin).executePolicyChange(PolicyProfile.GLOBAL_FATF)
+      ).to.be.revertedWith("AuditEngine: caller is not governance");
+
+      expect(await auditEngine.activePolicy()).to.equal(PolicyProfile.IRAQ_CBI); // unchanged
     });
   });
 
@@ -323,29 +369,34 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       expect(inc.severityHash).to.equal(ethers.keccak256(ethers.toUtf8Bytes("CRITICAL")));
     });
 
-    it("Should require MultiSig approval to unpause the engine (Dual-Control)", async function () {
+    it("Should require an executed MultiSig proposal to unpause the engine (Dual-Control, epoch-bound)", async function () {
       await auditEngine.connect(auditor1).emergencyPause("Rogue insider attack suspected");
       expect(await auditEngine.isPaused()).to.equal(true);
+      const epoch = await auditEngine.pauseEpoch();
 
-      // Rogue insider or single auditor attempts to unpause directly -> fails without MultiSig
+      // The legacy direct emergencyUnpause(proposalId) consumer is GONE: raw
+      // calldata from a single auditor reverts.
       await expect(
-        auditEngine.connect(auditor1).emergencyUnpause(1)
-      ).to.be.revertedWith("MultiSig: proposal does not exist");
+        auditor1.sendTransaction({
+          to: await auditEngine.getAddress(),
+          data: LEGACY_INTERFACE.encodeFunctionData("emergencyUnpause", [1]),
+        })
+      ).to.be.reverted;
+      expect(await auditEngine.isPaused()).to.equal(true);
 
-      // Create unpause proposal in MultiSig (EMERGENCY_UNPAUSE type)
-      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Threat resolved, safe to resume banking operations"));
+      // Create an epoch-bound unpause proposal in the coordinator
       await multiSig.connect(auditor1).createProposal(
         ProposalType.EMERGENCY_UNPAUSE,
         await auditEngine.getAddress(),
-        "0x",
-        reasonHash
+        auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [epoch]),
+        "Threat resolved, safe to resume banking operations"
       );
       await multiSig.connect(auditor2).approveProposal(1);
       await multiSig.connect(admin).approveProposal(1);
       expect(await multiSig.isApproved(1)).to.equal(true);
 
-      // Unpause using approved MultiSig proposal
-      await expect(auditEngine.connect(auditor1).emergencyUnpause(1))
+      // Unpause through atomic execution
+      await expect(multiSig.connect(auditor1).executeProposal(1))
         .to.emit(auditEngine, "EmergencyUnpaused");
 
       expect(await auditEngine.isPaused()).to.equal(false);

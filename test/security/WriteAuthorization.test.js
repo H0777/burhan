@@ -17,9 +17,9 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
     [bootstrapAuthority, admin, operator, auditor1, auditor2, regulator, outsider] =
       await ethers.getSigners();
 
-    // 1. Deploy MultiSig with bootstrapAuthority
+    // 1. Deploy MultiSig with bootstrapAuthority (TTL is the fixed 259,200s protocol constant)
     const MultiSigApproval = await ethers.getContractFactory("MultiSigApproval");
-    multiSig = await MultiSigApproval.deploy(bootstrapAuthority.address, 2, 24);
+    multiSig = await MultiSigApproval.deploy(bootstrapAuthority.address, 2);
     await multiSig.waitForDeployment();
 
     // 2. Deploy RoleManager with initialGovernance = multiSig
@@ -45,9 +45,8 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
 
   describe("Pre-Finalization Bootstrap Controls", function () {
     it("should revert normal multiSig execution before bootstrap is finalized", async function () {
-      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Pre-bootstrap proposal"));
       await expect(
-        multiSig.connect(auditor1).createProposal(0, await auditEngine.getAddress(), "0x", reasonHash)
+        multiSig.connect(auditor1).createProposal(0, await auditEngine.getAddress(), "0x", "Pre-bootstrap proposal")
       ).to.be.revertedWith("MultiSig: bootstrap not finalized");
     });
 
