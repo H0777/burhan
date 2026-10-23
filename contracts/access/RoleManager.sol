@@ -48,6 +48,12 @@ contract RoleManager {
     address[] private _allMembers;
     mapping(address => bool) private _isMember;
 
+    /// @notice Authorization generation per address (increments on role grant/revoke/rotation)
+    mapping(address => uint256) private _generations;
+
+    /// @notice Stable institutional participant ID
+    mapping(address => bytes32) private _participantIds;
+
     // ============================================================
     // EVENTS
     // ============================================================
@@ -104,6 +110,8 @@ contract RoleManager {
         governance = _initialGovernance;
         deployer = msg.sender;
         _roles[msg.sender] = Role.SUPER_ADMIN;
+        _generations[msg.sender] = 1;
+        _participantIds[msg.sender] = bytes32(uint256(uint160(msg.sender)));
         _allMembers.push(msg.sender);
         _isMember[msg.sender] = true;
 
@@ -155,6 +163,10 @@ contract RoleManager {
 
         Role previousRole = _roles[_target];
         _roles[_target] = _role;
+        _generations[_target]++;
+        if (_participantIds[_target] == bytes32(0)) {
+            _participantIds[_target] = bytes32(uint256(uint160(_target)));
+        }
 
         // Track membership
         if (!_isMember[_target]) {
@@ -188,6 +200,7 @@ contract RoleManager {
 
         Role previousRole = _roles[_target];
         _roles[_target] = Role.NONE;
+        _generations[_target]++;
 
         _roleHistory[_target].push(RoleChange({
             previousRole: previousRole,
@@ -270,5 +283,36 @@ contract RoleManager {
         Role current = _roles[_addr];
         if (current == Role.SUPER_ADMIN) return true;
         return current == _minRole;
+    }
+
+    /**
+     * @notice Get authorization generation for an address
+     */
+    function getGeneration(address _addr) external view returns (uint256) {
+        return _generations[_addr];
+    }
+
+    /**
+     * @notice Get participant tuple according to spec §5
+     */
+    function getParticipant(address _addr) external view returns (
+        bytes32 participantId,
+        uint256 generation,
+        Role role,
+        bool active
+    ) {
+        return (
+            _participantIds[_addr],
+            _generations[_addr],
+            _roles[_addr],
+            _roles[_addr] != Role.NONE
+        );
+    }
+
+    /**
+     * @notice Test helper to simulate authorization generation change / revocation
+     */
+    function testSetGeneration(address _target, uint256 _gen) external {
+        _generations[_target] = _gen;
     }
 }

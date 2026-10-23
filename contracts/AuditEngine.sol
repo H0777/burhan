@@ -55,6 +55,10 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
 
     /// @notice Emergency Circuit Breaker state
     bool public isPaused;
+    uint256 public pauseEpoch;
+
+    /// @notice Track consumed proposals to prevent replay
+    mapping(uint256 => bool) private _consumedProposals;
 
     /// @notice MultiSig enforcement flag for all overrides
     bool public enforceMultiSigOverride;
@@ -137,6 +141,14 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
         } else {
             require(msg.sender == admin, "AuditEngine: caller is not admin");
         }
+        _;
+    }
+
+    modifier onlyGovernance() {
+        require(
+            msg.sender == governance || msg.sender == address(multiSig),
+            "AuditEngine: caller is not governance"
+        );
         _;
     }
 
@@ -452,6 +464,8 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
     ) external onlyAuthorized whenNotPaused {
         require(isIntegrated && address(multiSig) != address(0), "AuditEngine: MultiSig not integrated");
         require(multiSig.isApproved(_proposalId), "AuditEngine: proposal not approved by MultiSig");
+        require(!_consumedProposals[_proposalId], "AuditEngine: proposal already executed or expired");
+        _consumedProposals[_proposalId] = true;
 
         MultiSigApproval.Proposal memory prop = multiSig.getProposal(_proposalId);
         require(
@@ -756,6 +770,7 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
      */
     function emergencyPause(string calldata _reason) external onlyAuthorized whenNotPaused {
         isPaused = true;
+        pauseEpoch++;
         emit EmergencyPaused(msg.sender, _reason, block.timestamp);
 
         if (isIntegrated) {
@@ -787,9 +802,13 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
     function emergencyUnpause(uint256 _proposalId) external onlyAuthorized whenPaused {
         if (isIntegrated && address(multiSig) != address(0)) {
             require(multiSig.isApproved(_proposalId), "AuditEngine: unpause requires MultiSig approval");
+            require(!_consumedProposals[_proposalId], "AuditEngine: proposal already executed or expired");
+            _consumedProposals[_proposalId] = true;
+
             MultiSigApproval.Proposal memory prop = multiSig.getProposal(_proposalId);
             require(
-                prop.proposalType == MultiSigApproval.ProposalType.POLICY_CHANGE,
+                prop.proposalType == MultiSigApproval.ProposalType.POLICY_CHANGE ||
+                prop.proposalType == MultiSigApproval.ProposalType.EMERGENCY_UNPAUSE,
                 "AuditEngine: invalid unpause proposal type"
             );
         } else {
@@ -806,6 +825,58 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
                 0,
                 address(0),
                 "EMERGENCY UNPAUSE: Resumed operations"
+            );
+        }
+    }
+
+    /**
+     * @notice Atomic execution from MultiSig coordinator to unpause engine
+     * @param _expectedEpoch The pauseEpoch for which the unpause proposal was approved
+     */
+    function executeEmergencyUnpause(uint256 _expectedEpoch) external onlyGovernance whenPaused {
+        require(_expectedEpoch == pauseEpoch, "AuditEngine: invalid pause epoch");
+        isPaused = false;
+        emit EmergencyUnpaused(msg.sender, 0, block.timestamp);
+
+        if (isIntegrated) {
+            insiderLog.logActivity(
+                msg.sender,
+                InsiderActivityLog.ActivityType.POLICY_CHANGE,
+                0,
+                address(0),
+                "EMERGENCY UNPAUSE: Resumed via MultiSig Governance"
+            );
+        }
+    }
+
+    /**
+     * @notice Atomic execution from MultiSig coordinator to override a warning
+     */
+    function executeOverrideWarning(
+        uint256 _txId,
+        address _sender,
+        address _receiver,
+        string calldata _justification
+    ) external onlyGovernance whenNotPaused {
+        Transaction storage txn = _transactions[_txId];
+        require(txn.status == AuditStatus.FLAGGED, "AuditEngine: can only override flagged transactions");
+        require(txn.sender == _sender && txn.receiver == _receiver, "AuditEngine: transaction party mismatch");
+
+        string memory previousWarning = txn.flagReason;
+        txn.isFlagged = false;
+        txn.flagReason = "";
+        txn.status = AuditStatus.CLEARED;
+
+        emit OverrideAttempted(msg.sender, _txId, previousWarning, block.timestamp);
+        emit TransactionCleared(_txId, block.timestamp);
+
+        if (isIntegrated) {
+            insiderLog.logActivity(
+                msg.sender,
+                InsiderActivityLog.ActivityType.TRANSACTION_OVERRIDE,
+                _txId,
+                _receiver,
+                string(abi.encodePacked("MultiSig Governance: ", _justification))
             );
         }
     }

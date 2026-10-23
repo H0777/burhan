@@ -18,5 +18,7 @@ interface IRoleManager {
     function countActiveParticipants() external view returns (uint256);
     function hasMinimumRole(address _addr, Role _minRole) external view returns (bool);
     function governance() external view returns (address);
+    function getGeneration(address _addr) external view returns (uint256);
+    function getParticipant(address _addr) external view returns (bytes32 participantId, uint256 generation, Role role, bool active);
 }
 

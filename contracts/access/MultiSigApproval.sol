@@ -26,22 +26,27 @@ contract MultiSigApproval {
     // ENUMS & STRUCTS
     // ============================================================
 
-    enum ProposalStatus { PENDING, APPROVED, REJECTED, EXPIRED }
+    enum ProposalStatus { PENDING, APPROVED, EXECUTED, REJECTED, EXPIRED, CANCELLED }
 
     enum ProposalType {
         OVERRIDE_WARNING,       // Override an AML/compliance warning
-        HIGH_VALUE_APPROVAL,    // Approve a high-value transaction
         POLICY_CHANGE,          // Modify compliance thresholds
-        ROLE_CHANGE             // Assign or revoke a role
+        EMERGENCY_UNPAUSE,      // Resume operations after emergency pause
+        ROLE_CHANGE,            // Assign or revoke a role
+        GOVERNANCE_CONFIG       // MultiSig configuration changes
     }
 
     struct Proposal {
         uint256 id;
         ProposalType proposalType;
         address proposer;
+        address target;
         bytes data;                 // Encoded action data
+        bytes32 actionHash;
+        bytes32 reasonHash;
         string reason;
         uint256 createdAt;
+        uint256 notBefore;
         uint256 expiresAt;
         ProposalStatus status;
         uint256 approvalCount;
@@ -74,6 +79,15 @@ contract MultiSigApproval {
     /// @notice Track who has voted on which proposal
     mapping(uint256 => mapping(address => bool)) private _hasVoted;
 
+    /// @notice Track participant IDs to prevent double voting across multiple wallets
+    mapping(uint256 => mapping(bytes32 => bool)) private _hasVotedParticipant;
+
+    /// @notice Track approvers per proposal
+    mapping(uint256 => address[]) private _proposalApprovers;
+
+    /// @notice Track approver authorization generation at time of voting
+    mapping(uint256 => mapping(address => uint256)) private _approverGenerations;
+
     /// @notice Track individual votes (true = approve, false = reject)
     mapping(uint256 => mapping(address => bool)) private _votes;
 
@@ -89,6 +103,14 @@ contract MultiSigApproval {
     event ParticipantsBootstrapped(uint256 count);
 
     event ProposalCreated(
+        uint256 indexed proposalId,
+        ProposalType indexed proposalType,
+        address indexed proposer,
+        address target,
+        bytes32 reasonHash
+    );
+
+    event LegacyProposalCreated(
         uint256 indexed proposalId,
         ProposalType indexed proposalType,
         address indexed proposer,
@@ -112,7 +134,7 @@ contract MultiSigApproval {
     event ProposalExecuted(
         uint256 indexed proposalId,
         address indexed executedBy,
-        uint256 timestamp
+        address target
     );
 
     event ProposalExpired(
@@ -264,29 +286,49 @@ contract MultiSigApproval {
     // ============================================================
 
     /**
-     * @notice Create a new proposal for a sensitive operation
+     * @notice Create a new typed proposal for atomic execution (V2)
      * @param _type The type of operation being proposed
-     * @param _data Encoded data for the operation
-     * @param _reason Human-readable justification
+     * @param _target Target contract to execute callData on
+     * @param _data Encoded action calldata for target contract
+     * @param _reasonHash Hash of human-readable justification and evidence reference
      * @return proposalId The ID of the created proposal
      */
     function createProposal(
         ProposalType _type,
+        address _target,
         bytes calldata _data,
-        string calldata _reason
+        bytes32 _reasonHash
     ) external onlyAuthorized returns (uint256 proposalId) {
+        require(_target != address(0) && _target.code.length > 0, "MultiSig: target must be an active contract");
+
         _proposalCounter++;
         proposalId = _proposalCounter;
 
         uint256 expiresAt = block.timestamp + proposalTTL;
+        bytes32 actionHash = keccak256(
+            abi.encode(
+                block.chainid,
+                address(this),
+                proposalId,
+                _type,
+                _target,
+                keccak256(_data),
+                block.timestamp,
+                expiresAt
+            )
+        );
 
         _proposals[proposalId] = Proposal({
             id: proposalId,
             proposalType: _type,
             proposer: msg.sender,
+            target: _target,
             data: _data,
-            reason: _reason,
+            actionHash: actionHash,
+            reasonHash: _reasonHash,
+            reason: "",
             createdAt: block.timestamp,
+            notBefore: block.timestamp,
             expiresAt: expiresAt,
             status: ProposalStatus.PENDING,
             approvalCount: 0,
@@ -295,7 +337,7 @@ contract MultiSigApproval {
 
         _allProposalIds.push(proposalId);
 
-        emit ProposalCreated(proposalId, _type, msg.sender, _reason, expiresAt);
+        emit ProposalCreated(proposalId, _type, msg.sender, _target, _reasonHash);
     }
 
     /**
@@ -311,11 +353,39 @@ contract MultiSigApproval {
 
         require(proposal.status == ProposalStatus.PENDING, "MultiSig: not pending");
         require(block.timestamp < proposal.expiresAt, "MultiSig: proposal expired");
-        require(!_hasVoted[_proposalId][msg.sender], "MultiSig: already voted");
-        require(msg.sender != proposal.proposer, "MultiSig: proposer cannot self-approve");
+        require(msg.sender != proposal.proposer, "MultiSig: proposer cannot approve own proposal");
+        require(!_hasVoted[_proposalId][msg.sender], "MultiSig: caller has already voted");
+
+        (bytes32 participantId, uint256 gen, , bool active) = roleManager.getParticipant(msg.sender);
+        require(active, "MultiSig: participant inactive");
+        require(!_hasVotedParticipant[_proposalId][participantId], "MultiSig: participant has already voted");
+
+        // Conflict of interest check on OVERRIDE_WARNING
+        if (proposal.proposalType == ProposalType.OVERRIDE_WARNING && proposal.data.length >= 100) {
+            bytes memory pdata = proposal.data;
+            bytes4 sel;
+            assembly {
+                sel := mload(add(pdata, 32))
+            }
+            if (sel == bytes4(keccak256("executeOverrideWarning(uint256,address,address,string)"))) {
+                address txSender;
+                address txReceiver;
+                assembly {
+                    txSender := mload(add(pdata, 68))
+                    txReceiver := mload(add(pdata, 100))
+                }
+                require(
+                    msg.sender != txSender && msg.sender != txReceiver,
+                    "MultiSig: transaction sender/receiver cannot approve override"
+                );
+            }
+        }
 
         _hasVoted[_proposalId][msg.sender] = true;
+        _hasVotedParticipant[_proposalId][participantId] = true;
         _votes[_proposalId][msg.sender] = true;
+        _proposalApprovers[_proposalId].push(msg.sender);
+        _approverGenerations[_proposalId][msg.sender] = gen;
         proposal.approvalCount++;
 
         emit ProposalApproved(
@@ -325,11 +395,69 @@ contract MultiSigApproval {
             requiredApprovals
         );
 
-        // Auto-execute if threshold met
         if (proposal.approvalCount >= requiredApprovals) {
             proposal.status = ProposalStatus.APPROVED;
-            emit ProposalExecuted(_proposalId, msg.sender, block.timestamp);
         }
+    }
+
+    /**
+     * @notice Atomically execute an approved proposal
+     * @param _proposalId The ID of the approved proposal to execute
+     */
+    function executeProposal(uint256 _proposalId)
+        external
+        onlyAuthorized
+        proposalExists(_proposalId)
+        returns (bytes memory)
+    {
+        Proposal storage proposal = _proposals[_proposalId];
+        require(
+            proposal.status == ProposalStatus.APPROVED,
+            "MultiSig: proposal is not approved or already executed"
+        );
+        require(block.timestamp < proposal.expiresAt, "MultiSig: proposal expired");
+
+        // Verify voter authorization generations are still fresh
+        address[] memory approvers = _proposalApprovers[_proposalId];
+        for (uint256 i = 0; i < approvers.length; i++) {
+            address approver = approvers[i];
+            (, uint256 currentGen, , bool active) = roleManager.getParticipant(approver);
+            require(
+                active &&
+                    currentGen == _approverGenerations[_proposalId][approver] &&
+                    roleManager.hasMinimumRole(approver, RoleManager.Role.AUDITOR),
+                "MultiSig: approver authorization generation is stale or revoked"
+            );
+        }
+
+        proposal.status = ProposalStatus.EXECUTED;
+        emit ProposalExecuted(_proposalId, msg.sender, proposal.target);
+
+        // Atomic external call to target
+        (bool success, bytes memory returnData) = proposal.target.call(proposal.data);
+        if (!success) {
+            if (returnData.length > 0) {
+                assembly {
+                    let returndata_size := mload(returnData)
+                    revert(add(32, returnData), returndata_size)
+                }
+            } else {
+                revert("MultiSig: target execution failed");
+            }
+        }
+        return returnData;
+    }
+
+    /**
+     * @notice Get all approvers for a proposal
+     */
+    function getApprovers(uint256 _proposalId)
+        external
+        view
+        proposalExists(_proposalId)
+        returns (address[] memory)
+    {
+        return _proposalApprovers[_proposalId];
     }
 
     /**

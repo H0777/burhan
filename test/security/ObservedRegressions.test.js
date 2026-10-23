@@ -5,39 +5,21 @@ describe("Security Regressions Baseline Reproduction (T01)", function () {
   let admin, operator, auditor, auditor2, outsider, beneficiary;
   let roleManager, multiSig, forensicTrail, insiderLog, auditEngine;
 
+const { deploySystemFixture } = require("../helpers/deploySystem");
+
   beforeEach(async function () {
-    [admin, operator, auditor, auditor2, outsider, beneficiary] = await ethers.getSigners();
-
-    const RoleManager = await ethers.getContractFactory("RoleManager");
-    roleManager = await RoleManager.deploy();
-    await roleManager.waitForDeployment();
-
-    const MultiSigApproval = await ethers.getContractFactory("MultiSigApproval");
-    multiSig = await MultiSigApproval.deploy(await roleManager.getAddress(), 2, 24);
-    await multiSig.waitForDeployment();
-
-    const ForensicTrail = await ethers.getContractFactory("ForensicTrail");
-    forensicTrail = await ForensicTrail.deploy();
-    await forensicTrail.waitForDeployment();
-
-    const InsiderActivityLog = await ethers.getContractFactory("InsiderActivityLog");
-    insiderLog = await InsiderActivityLog.deploy();
-    await insiderLog.waitForDeployment();
-
-    const AuditEngine = await ethers.getContractFactory("AuditEngine");
-    auditEngine = await AuditEngine.deploy();
-    await auditEngine.waitForDeployment();
-
-    await auditEngine.integrateAllContracts(
-      await roleManager.getAddress(),
-      await insiderLog.getAddress(),
-      await forensicTrail.getAddress(),
-      await multiSig.getAddress()
-    );
-
-    // Assign AUDITOR role to auditor and auditor2
-    await roleManager.assignRole(auditor.address, 2, "Authorized Auditor");
-    await roleManager.assignRole(auditor2.address, 2, "Second Authorized Auditor");
+    const system = await deploySystemFixture();
+    roleManager = system.roleManager;
+    multiSig = system.multiSig;
+    forensicTrail = system.forensicTrail;
+    insiderLog = system.insiderLog;
+    auditEngine = system.auditEngine;
+    admin = system.admin;
+    auditor = system.auditor1;
+    auditor2 = system.auditor2;
+    operator = system.operator;
+    outsider = system.outsider;
+    beneficiary = system.regulator;
   });
 
   it("regression: outsider_logs_for_other_operator should be rejected", async function () {
@@ -70,15 +52,17 @@ describe("Security Regressions Baseline Reproduction (T01)", function () {
     await auditEngine.connect(admin).emergencyPause("First emergency pause");
     expect(await auditEngine.isPaused()).to.equal(true);
 
-    // 2. Create proposal to unpause (ProposalType.POLICY_CHANGE is index 2)
-    await multiSig.connect(auditor).createProposal(2, "0x", "Unpause proposal");
+    // 2. Create proposal to unpause (ProposalType.EMERGENCY_UNPAUSE is index 2)
+    const unpauseCalldata = auditEngine.interface.encodeFunctionData("executeEmergencyUnpause", [1]);
+    const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Unpause proposal"));
+    await multiSig.connect(auditor).createProposal(2, await auditEngine.getAddress(), unpauseCalldata, reasonHash);
     // Approve proposal by admin (1st approval) and auditor2 (2nd approval)
     await multiSig.connect(admin).approveProposal(1);
     await multiSig.connect(auditor2).approveProposal(1);
     expect(await multiSig.isApproved(1)).to.equal(true);
 
-    // 3. First unpause succeeds
-    await auditEngine.connect(admin).emergencyUnpause(1);
+    // 3. First unpause succeeds via atomic executeProposal
+    await multiSig.connect(admin).executeProposal(1);
     expect(await auditEngine.isPaused()).to.equal(false);
 
     // 4. Engine paused again due to another emergency incident
@@ -87,7 +71,7 @@ describe("Security Regressions Baseline Reproduction (T01)", function () {
 
     // 5. Attempt to REUSE proposal #1 to unpause again: MUST be rejected!
     await expect(
-      auditEngine.connect(admin).emergencyUnpause(1)
-    ).to.be.revertedWith("AuditEngine: proposal already executed or expired");
+      multiSig.connect(admin).executeProposal(1)
+    ).to.be.revertedWith("MultiSig: proposal is not approved or already executed");
   });
 });

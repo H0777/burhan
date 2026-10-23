@@ -15,9 +15,10 @@ describe("AuditEngine Enterprise & Forensic Enhancements (5 Features)", function
 
   const ProposalType = {
     OVERRIDE_WARNING: 0,
-    HIGH_VALUE_APPROVAL: 1,
-    POLICY_CHANGE: 2,
+    POLICY_CHANGE: 1,
+    EMERGENCY_UNPAUSE: 2,
     ROLE_CHANGE: 3,
+    GOVERNANCE_CONFIG: 4,
   };
 
   const PolicyProfile = {
@@ -67,10 +68,12 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       const encodedData = abiCoder.encode(["uint256"], [flaggedTxId]);
 
       // Propose in MultiSig by auditor1
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Customer provided source of funds documentation"));
       await multiSig.connect(auditor1).createProposal(
         ProposalType.OVERRIDE_WARNING,
+        await auditEngine.getAddress(),
         encodedData,
-        "Customer provided source of funds documentation"
+        reasonHash
       );
 
       // Auditor2 and Admin approve proposal (reaches 2 required approvals)
@@ -102,10 +105,12 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       const encodedData = abiCoder.encode(["uint256"], [flaggedTxId]);
 
       // Only 1 approval (proposer only created it, no approvals yet)
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Pending approval"));
       await multiSig.connect(auditor1).createProposal(
         ProposalType.OVERRIDE_WARNING,
+        await auditEngine.getAddress(),
         encodedData,
-        "Pending approval"
+        reasonHash
       );
 
       await expect(
@@ -121,7 +126,13 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       const abiCoder = new ethers.AbiCoder();
       const encodedData = abiCoder.encode(["uint256"], [999]); // targeting tx 999
 
-      await multiSig.connect(auditor1).createProposal(ProposalType.OVERRIDE_WARNING, encodedData, "Wrong tx");
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Wrong tx"));
+      await multiSig.connect(auditor1).createProposal(
+        ProposalType.OVERRIDE_WARNING,
+        await auditEngine.getAddress(),
+        encodedData,
+        reasonHash
+      );
       await multiSig.connect(auditor2).approveProposal(1);
       await multiSig.connect(admin).approveProposal(1);
 
@@ -260,10 +271,12 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       await auditEngine.connect(admin).proposePolicyChange(PolicyProfile.GLOBAL_FATF);
 
       // Create POLICY_CHANGE proposal in MultiSig
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Emergency policy change needed immediately"));
       await multiSig.connect(auditor1).createProposal(
         ProposalType.POLICY_CHANGE,
+        await auditEngine.getAddress(),
         "0x",
-        "Emergency policy change needed immediately"
+        reasonHash
       );
       await multiSig.connect(auditor2).approveProposal(1);
       await multiSig.connect(admin).approveProposal(1);
@@ -319,11 +332,13 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
         auditEngine.connect(auditor1).emergencyUnpause(1)
       ).to.be.revertedWith("MultiSig: proposal does not exist");
 
-      // Create unpause proposal in MultiSig (POLICY_CHANGE type)
+      // Create unpause proposal in MultiSig (EMERGENCY_UNPAUSE type)
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Threat resolved, safe to resume banking operations"));
       await multiSig.connect(auditor1).createProposal(
-        ProposalType.POLICY_CHANGE,
+        ProposalType.EMERGENCY_UNPAUSE,
+        await auditEngine.getAddress(),
         "0x",
-        "Threat resolved, safe to resume banking operations"
+        reasonHash
       );
       await multiSig.connect(auditor2).approveProposal(1);
       await multiSig.connect(admin).approveProposal(1);

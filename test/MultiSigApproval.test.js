@@ -3,6 +3,8 @@ const { ethers } = require("hardhat");
 
 describe("MultiSigApproval", function () {
   let roleManager;
+  let auditEngine;
+  let insiderLog;
   let multiSig;
   let deployer, auditor1, auditor2, operator, outsider;
 
@@ -16,27 +18,32 @@ describe("MultiSigApproval", function () {
 
   const ProposalType = {
     OVERRIDE_WARNING: 0,
-    HIGH_VALUE_APPROVAL: 1,
-    POLICY_CHANGE: 2,
+    POLICY_CHANGE: 1,
+    EMERGENCY_UNPAUSE: 2,
     ROLE_CHANGE: 3,
+    GOVERNANCE_CONFIG: 4,
   };
 
   const ProposalStatus = {
     PENDING: 0,
     APPROVED: 1,
-    REJECTED: 2,
-    EXPIRED: 3,
+    EXECUTED: 2,
+    REJECTED: 3,
+    EXPIRED: 4,
+    CANCELLED: 5,
   };
 
   const REQUIRED_APPROVALS = 2;
   const TTL_HOURS = 24;
 
-const { deploySystemFixture } = require("./helpers/deploySystem");
+  const { deploySystemFixture } = require("./helpers/deploySystem");
 
   beforeEach(async function () {
     const system = await deploySystemFixture();
     multiSig = system.multiSig;
     roleManager = system.roleManager;
+    auditEngine = system.auditEngine;
+    insiderLog = system.insiderLog;
     deployer = system.admin;
     auditor1 = system.auditor1;
     auditor2 = system.auditor2;
@@ -70,11 +77,14 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
 
   describe("Proposal Creation", function () {
     it("Should allow SUPER_ADMIN to create a proposal", async function () {
-      const dummyData = ethers.hexlify(ethers.toUtf8Bytes("override-tx-42"));
+      const dummyData = "0x";
+      const target = await auditEngine.getAddress();
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Customer provided verifiable tax documentation"));
       const tx = await multiSig.connect(deployer).createProposal(
-        ProposalType.OVERRIDE_WARNING,
+        ProposalType.POLICY_CHANGE,
+        target,
         dummyData,
-        "Customer provided verifiable tax documentation"
+        reasonHash
       );
 
       const receipt = await tx.wait();
@@ -82,47 +92,55 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
 
       const prop = await multiSig.getProposal(1);
       expect(prop.id).to.equal(1);
-      expect(prop.proposalType).to.equal(ProposalType.OVERRIDE_WARNING);
+      expect(prop.proposalType).to.equal(ProposalType.POLICY_CHANGE);
       expect(prop.proposer).to.equal(deployer.address);
+      expect(prop.target).to.equal(target);
       expect(prop.data).to.equal(dummyData);
-      expect(prop.reason).to.equal("Customer provided verifiable tax documentation");
+      expect(prop.reasonHash).to.equal(reasonHash);
       expect(prop.status).to.equal(ProposalStatus.PENDING);
       expect(prop.approvalCount).to.equal(0);
     });
 
     it("Should allow AUDITOR to create a proposal", async function () {
-      const dummyData = "0x1234";
+      const dummyData = "0x";
+      const target = await auditEngine.getAddress();
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Whale transfer"));
       await expect(
-        multiSig.connect(auditor1).createProposal(ProposalType.HIGH_VALUE_APPROVAL, dummyData, "Whale transfer")
+        multiSig.connect(auditor1).createProposal(ProposalType.POLICY_CHANGE, target, dummyData, reasonHash)
       ).to.emit(multiSig, "ProposalCreated");
     });
 
     it("Should revert if OPERATOR or outsider creates proposal", async function () {
-      const dummyData = "0x1234";
+      const dummyData = "0x";
+      const target = await auditEngine.getAddress();
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Operator attempt"));
       await expect(
-        multiSig.connect(operator).createProposal(ProposalType.POLICY_CHANGE, dummyData, "Operator attempt")
+        multiSig.connect(operator).createProposal(ProposalType.POLICY_CHANGE, target, dummyData, reasonHash)
       ).to.be.revertedWith("MultiSig: caller not authorized to participate");
 
       await expect(
-        multiSig.connect(outsider).createProposal(ProposalType.POLICY_CHANGE, dummyData, "Outsider attempt")
+        multiSig.connect(outsider).createProposal(ProposalType.POLICY_CHANGE, target, dummyData, reasonHash)
       ).to.be.revertedWith("MultiSig: caller not authorized to participate");
     });
   });
 
   describe("Approval Flow & Execution", function () {
     beforeEach(async function () {
-      const dummyData = ethers.hexlify(ethers.toUtf8Bytes("override-tx-101"));
+      const callData = insiderLog.interface.encodeFunctionData("setBusinessHours", [9, 18]);
+      const target = await insiderLog.getAddress();
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Clear false positive"));
       await multiSig.connect(deployer).createProposal(
-        ProposalType.OVERRIDE_WARNING,
-        dummyData,
-        "Clear false positive"
+        ProposalType.POLICY_CHANGE,
+        target,
+        callData,
+        reasonHash
       );
     });
 
     it("Should revert if proposer tries to approve own proposal (Four-Eyes Principle)", async function () {
       await expect(
         multiSig.connect(deployer).approveProposal(1)
-      ).to.be.revertedWith("MultiSig: proposer cannot self-approve");
+      ).to.be.revertedWith("MultiSig: proposer cannot approve own proposal");
     });
 
     it("Should record first approval without auto-executing", async function () {
@@ -137,33 +155,43 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
       expect(await multiSig.isApproved(1)).to.equal(false);
     });
 
-    it("Should auto-execute and mark APPROVED when required approvals met", async function () {
+    it("Should mark APPROVED when required approvals met and allow execution", async function () {
       await multiSig.connect(auditor1).approveProposal(1);
 
       await expect(multiSig.connect(auditor2).approveProposal(1))
-        .to.emit(multiSig, "ProposalExecuted");
+        .to.emit(multiSig, "ProposalApproved")
+        .withArgs(1, auditor2.address, 2, REQUIRED_APPROVALS);
 
       const prop = await multiSig.getProposal(1);
       expect(prop.approvalCount).to.equal(2);
       expect(prop.status).to.equal(ProposalStatus.APPROVED);
       expect(await multiSig.isApproved(1)).to.equal(true);
+
+      await expect(multiSig.connect(auditor1).executeProposal(1))
+        .to.emit(multiSig, "ProposalExecuted");
+
+      const executedProp = await multiSig.getProposal(1);
+      expect(executedProp.status).to.equal(ProposalStatus.EXECUTED);
     });
 
     it("Should revert if same approver votes twice", async function () {
       await multiSig.connect(auditor1).approveProposal(1);
       await expect(
         multiSig.connect(auditor1).approveProposal(1)
-      ).to.be.revertedWith("MultiSig: already voted");
+      ).to.be.revertedWith("MultiSig: caller has already voted");
     });
   });
 
   describe("Rejection Flow", function () {
     beforeEach(async function () {
-      const dummyData = "0x9999";
+      const dummyData = "0x";
+      const target = await auditEngine.getAddress();
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Suspicious off-shore transfer"));
       await multiSig.connect(deployer).createProposal(
-        ProposalType.HIGH_VALUE_APPROVAL,
+        ProposalType.POLICY_CHANGE,
+        target,
         dummyData,
-        "Suspicious off-shore transfer"
+        reasonHash
       );
     });
 
@@ -189,8 +217,15 @@ const { deploySystemFixture } = require("./helpers/deploySystem");
 
   describe("Proposal Expiration & View Queries", function () {
     beforeEach(async function () {
-      const dummyData = "0x8888";
-      await multiSig.connect(deployer).createProposal(ProposalType.POLICY_CHANGE, dummyData, "Policy update");
+      const dummyData = "0x";
+      const target = await auditEngine.getAddress();
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Policy update"));
+      await multiSig.connect(deployer).createProposal(
+        ProposalType.POLICY_CHANGE,
+        target,
+        dummyData,
+        reasonHash
+      );
     });
 
     it("Should correctly track pending proposals", async function () {

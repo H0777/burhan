@@ -45,8 +45,9 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
 
   describe("Pre-Finalization Bootstrap Controls", function () {
     it("should revert normal multiSig execution before bootstrap is finalized", async function () {
+      const reasonHash = ethers.keccak256(ethers.toUtf8Bytes("Pre-bootstrap proposal"));
       await expect(
-        multiSig.connect(auditor1).createProposal(0, "0x", "Pre-bootstrap proposal")
+        multiSig.connect(auditor1).createProposal(0, await auditEngine.getAddress(), "0x", reasonHash)
       ).to.be.revertedWith("MultiSig: bootstrap not finalized");
     });
 
