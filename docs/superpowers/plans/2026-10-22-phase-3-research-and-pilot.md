@@ -81,11 +81,11 @@
 
 **Interfaces:** POST `/api/v2/cases/{id}/reports` حسب التصميم؛ export zip يحتوي manifest موقع، evidence hashes/object versions، schema version، snapshot block_number/hash وcount/head، assessments/decisions بدون أسرار. `verify-evidence-export.py --bundle path --registry path` يتحقق مستقلاً ويرجع status وأسباب؛ dossier_hash يلتزم بالmanifest والمحتوى الكامل لا عدد الأدلة والعنوان فقط.
 
-- [ ] اختبر تغيير بايت في الملف، نص التقرير، منفذ القرار، توقيع manifest، root محلي مصطنع، export تابع لمؤسسة أخرى، legacy محدود المصدر، وRPC غير متاح؛ كل حالة تحمل status/provenance الصحيح.
-- [ ] شغّل `python -m pytest -q tests/integration/test_report_provenance.py` من ai-engine قبل implementation.
-- [ ] نفذ تقريراً حتمياً يفصل observation/allegation/assessment/human decision؛ أزل الأختام/الاعتماد الرسمي الثابت والاتهامات التجريبية من institutional؛ احفظ إصدار التقرير ولا تستبدله.
-- [ ] تحقق من export ثم أضف دليلاً جديداً: يبقى snapshot التقرير القديم صالحاً؛ تحقق من نص عربي/إنجليزي طويل وطباعة سليمة وبصمات كاملة قابلة للنسخ؛ لا ترابط hash فقط دون file verification.
-- [ ] سجل حالة legacy_unrestricted_submission بشكل ظاهر ووقع manifest بمفتاح صادر للمؤسسة مع public-key registry؛ review وcommit.
+- [x] اختبر تغيير بايت في الملف، نص التقرير، منفذ القرار، توقيع manifest، root محلي مصطنع، export تابع لمؤسسة أخرى، legacy محدود المصدر، وRPC غير متاح؛ كل حالة تحمل status/provenance الصحيح.
+- [x] شغّل `python -m pytest -q tests/integration/test_report_provenance.py` من ai-engine قبل implementation.
+- [x] نفذ تقريراً حتمياً يفصل observation/allegation/assessment/human decision؛ أزل الأختام/الاعتماد الرسمي الثابت والاتهامات التجريبية من institutional؛ احفظ إصدار التقرير ولا تستبدله.
+- [x] تحقق من export ثم أضف دليلاً جديداً: يبقى snapshot التقرير القديم صالحاً؛ تحقق من نص عربي/إنجليزي طويل وطباعة سليمة وبصمات كاملة قابلة للنسخ؛ لا ترابط hash فقط دون file verification.
+- [x] سجل حالة legacy_unrestricted_submission بشكل ظاهر ووقع manifest بمفتاح صادر للمؤسسة مع public-key registry؛ review وcommit.
 
 **القبول:** طرف مستقل يستطيع التحقق من سلامة النسخة المصدرة ومرجعها دون الاعتماد على لون زر في الواجهة؛ انقطاع المصدر ينتج unavailable.
 

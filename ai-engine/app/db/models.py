@@ -348,7 +348,37 @@ class CheckpointRecord(Base):
     )
 
 
+class ReportRecord(Base):
+    """
+    Immutable Versioned Case Forensic Report Record (T20, R04, R15)
+    Carries complete snapshot of findings, evidence manifest, and dossier hash.
+    """
+    __tablename__ = "case_reports"
 
+    id = Column(String(64), primary_key=True)
+    report_id = Column(String(64), nullable=False, index=True)
+    institution_id = Column(String(64), nullable=False, index=True)
+    case_id = Column(String(64), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    language = Column(String(8), nullable=False, default="en")
+    dossier_hash = Column(String(66), nullable=False)
+    integrity_status = Column(String(32), nullable=False)  # VERIFIED, UNANCHORED, TAMPER_DETECTED, UNAVAILABLE
+    provenance_status = Column(String(64), nullable=False)
+    markdown_content = Column(Text, nullable=False)
+    manifest_json = Column(Text, nullable=False)
+    created_by_sub = Column(String(128), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["institution_id", "case_id"],
+            ["cases.institution_id", "cases.id"],
+            ondelete="CASCADE",
+            name="fk_case_reports_case",
+        ),
+        UniqueConstraint("institution_id", "case_id", "version", name="uq_case_report_version"),
+        Index("ix_case_reports_inst_case", "institution_id", "case_id"),
+    )
 
 
 # List of tables requiring PostgreSQL Row-Level Security
@@ -359,6 +389,7 @@ RLS_TABLES = [
     "case_events",
     "evidence_objects",
     "evidence_anchors",
+    "case_reports",
     "outbox",
     "idempotency_keys",
     "transactions",

@@ -302,6 +302,66 @@ export class ApiV2Client {
       headers
     })
   }
+
+  /**
+   * Generate authoritative versioned forensic investigation report for a case.
+   * @param {string} caseId
+   * @param {Object} [options]
+   * @param {'en'|'ar'} [options.language='en']
+   * @param {string[]|null} [options.evidenceIds=null]
+   * @param {string[]|null} [options.assessmentIds=null]
+   * @param {string|null} [options.token=null]
+   */
+  async generateCaseReport(caseId, { language = 'en', evidenceIds = null, assessmentIds = null, token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/cases/${encodeURIComponent(caseId)}/reports`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        language,
+        ...(evidenceIds ? { evidence_ids: evidenceIds } : {}),
+        ...(assessmentIds ? { assessment_ids: assessmentIds } : {})
+      })
+    })
+  }
+
+  /**
+   * List all historical report versions for a case.
+   * @param {string} caseId
+   * @param {Object} [options]
+   * @param {string|null} [options.token=null]
+   */
+  async listCaseReports(caseId, { token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/cases/${encodeURIComponent(caseId)}/reports`, {
+      method: 'GET',
+      headers
+    })
+  }
+
+  /**
+   * Retrieve a specific case report version.
+   * @param {string} caseId
+   * @param {string} reportId
+   * @param {Object} [options]
+   * @param {string|null} [options.token=null]
+   */
+  async getCaseReport(caseId, reportId, { token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/cases/${encodeURIComponent(caseId)}/reports/${encodeURIComponent(reportId)}`, {
+      method: 'GET',
+      headers
+    })
+  }
+
+  /**
+   * Get direct download URL for court-admissible evidence export ZIP bundle.
+   * @param {string} caseId
+   * @param {string} reportId
+   */
+  getCaseReportExportUrl(caseId, reportId) {
+    return `${this.baseUrl}/api/v2/cases/${encodeURIComponent(caseId)}/reports/${encodeURIComponent(reportId)}/export`
+  }
 }
 
 // Default singleton instance

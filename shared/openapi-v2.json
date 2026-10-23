@@ -1239,6 +1239,175 @@
         "title": "ReadyHealthResponse",
         "type": "object"
       },
+      "ReportCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "assessment_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of assessment IDs to include in the findings section",
+            "title": "Assessment Ids"
+          },
+          "evidence_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of specific evidence IDs to include; defaults to all case evidence",
+            "title": "Evidence Ids"
+          },
+          "language": {
+            "default": "en",
+            "description": "Target report language ('en' for English, 'ar' for Arabic)",
+            "enum": [
+              "en",
+              "ar"
+            ],
+            "title": "Language",
+            "type": "string"
+          }
+        },
+        "title": "ReportCreateRequest",
+        "type": "object"
+      },
+      "ReportListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "Historical list of reports for the case",
+            "items": {
+              "$ref": "#/components/schemas/ReportResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "description": "Total number of report versions",
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ReportListResponse",
+        "type": "object"
+      },
+      "ReportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "case_id": {
+            "description": "Associated case ID",
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Timestamp of report issuance in UTC",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "Subject identity of creator",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dossier_hash": {
+            "description": "SHA-256 hash of entire dossier",
+            "pattern": "^0x[0-9a-fA-F]{64}$",
+            "title": "Dossier Hash",
+            "type": "string"
+          },
+          "engine": {
+            "description": "Report generation engine identifier",
+            "title": "Engine",
+            "type": "string"
+          },
+          "institution_id": {
+            "description": "Issuing tenant institution ID",
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "integrity_status": {
+            "description": "Cryptographic chain anchor and evidence integrity status",
+            "enum": [
+              "VERIFIED",
+              "UNANCHORED",
+              "TAMPER_DETECTED",
+              "UNAVAILABLE"
+            ],
+            "title": "Integrity Status",
+            "type": "string"
+          },
+          "language": {
+            "description": "Report language ('en' or 'ar')",
+            "title": "Language",
+            "type": "string"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "description": "Comprehensive dossier manifest",
+            "title": "Manifest",
+            "type": "object"
+          },
+          "markdown": {
+            "description": "Deterministic formatted markdown document",
+            "title": "Markdown",
+            "type": "string"
+          },
+          "provenance_status": {
+            "description": "Provenance explanation string",
+            "title": "Provenance Status",
+            "type": "string"
+          },
+          "report_id": {
+            "description": "Unique report identifier",
+            "title": "Report Id",
+            "type": "string"
+          },
+          "version": {
+            "description": "Sequential report version number",
+            "minimum": 1.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "report_id",
+          "case_id",
+          "institution_id",
+          "version",
+          "language",
+          "dossier_hash",
+          "integrity_status",
+          "provenance_status",
+          "markdown",
+          "engine",
+          "manifest",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ReportResponse",
+        "type": "object"
+      },
       "RoleEnum": {
         "enum": [
           "SUPER_ADMIN",
@@ -2028,6 +2197,262 @@
         "summary": "Upload non-fungible evidence for case",
         "tags": [
           "Cases V2"
+        ]
+      }
+    },
+    "/api/v2/cases/{case_id}/reports": {
+      "get": {
+        "operationId": "list_case_reports_endpoint_api_v2_cases__case_id__reports_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List all historical reports for a case",
+        "tags": [
+          "Reports V2"
+        ]
+      },
+      "post": {
+        "operationId": "create_case_report_endpoint_api_v2_cases__case_id__reports_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate authoritative versioned case investigation report",
+        "tags": [
+          "Reports V2"
+        ]
+      }
+    },
+    "/api/v2/cases/{case_id}/reports/{report_id}": {
+      "get": {
+        "operationId": "get_case_report_endpoint_api_v2_cases__case_id__reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retrieve specific case report version",
+        "tags": [
+          "Reports V2"
+        ]
+      }
+    },
+    "/api/v2/cases/{case_id}/reports/{report_id}/export": {
+      "get": {
+        "operationId": "export_case_report_bundle_endpoint_api_v2_cases__case_id__reports__report_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download self-verifying court-admissible zip archive bundle",
+        "tags": [
+          "Reports V2"
         ]
       }
     },
