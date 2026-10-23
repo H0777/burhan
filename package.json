@@ -22,9 +22,11 @@
     "contracts:check": "node scripts/check-contracts.js",
     "deploy:verify": "node scripts/verify-deployment.js",
     "verify:contracts": "node scripts/check-contracts.js && hardhat test",
-    "verify:api": "node --test shared/tests/evidence-hash.test.mjs shared/tests/currency.test.mjs && node scripts/run-python.js scripts/check-openapi.py",
+    "verify:api": "node --test shared/tests/evidence-hash.test.mjs shared/tests/currency.test.mjs && node scripts/run-python.js scripts/check-openapi.py && node scripts/run-python.js -m pytest -q ai-engine/tests",
     "verify:frontend": "npm --prefix frontend run lint && npm --prefix frontend test -- --run && npm --prefix frontend run build",
-    "verify:all": "npm run verify:contracts && npm run verify:api && npm run verify:frontend"
+    "test:integration": "node scripts/run-integration.js",
+    "verify:integration": "node scripts/run-integration.js",
+    "verify:all": "npm run verify:contracts && npm run verify:api && npm run verify:frontend && npm run verify:integration"
   },
   "keywords": [
     "digital-forensics",
@@ -46,6 +48,7 @@
   "license": "MIT",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@playwright/test": "^1.64.1",
     "hardhat": "^2.22.0"
   },
   "dependencies": {

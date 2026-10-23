@@ -109,3 +109,23 @@ Task 11: complete (tests: npm run verify:all passing with zero errors; 143/143 H
 - Created scripts/run-python.js cross-platform helper to resolve Python automatically across Windows environments and GitHub Actions CI runners.
 - Documented all gating requirements, secrets detection, and CI timeouts in docs/verification/quality-gates.md.
 - Added unified verification scripts (verify:contracts, verify:api, verify:frontend, verify:all) in root package.json; verified npm run verify:all passes completely.
+
+Task 12: complete (tests: npm run verify:all passing with zero errors; 7/7 Playwright E2E trust-flow integration tests passing, 143/143 Hardhat, 44/44 Python, 13/13 Vitest, 7/7 Node)
+- Implemented Playwright E2E test suite in tests/e2e/trust-flow.spec.js with 7 comprehensive tests:
+  - 1.1 API V2 Health and Policy Thresholds Inspection (/api/v2/health/ready, /api/v2/health/live, /api/v2/policies/active for ETH scale 18 and IQD scale 3).
+  - 1.2 AML Anomaly & Risk Flagging via AI Engine (/api/v1/risk/score and /api/v1/insider/analyze).
+  - 1.3 MultiSig Governance Lifecycle with SoD and Four-Eyes Enforcement (proposer self-approval rejected, non-participant rejected, unauthorized participant rejected, duplicate vote rejected via staticCall, two distinct approvals by AUDITOR and SUPER_ADMIN, atomic execution, replay prevention).
+  - 1.4 Cryptographic Evidence Submission and API Verification (governance proposal to authorize writer, incident creation, evidence submission with canonical keccak256 hash, /api/v2/evidence/verify returning status "verified" and provenance "verified_institutional_writer", write receipt artifact).
+  - 2.1 Review Focus 3: Altered Evidence Content Rejected as Invalid (status "invalid", provenance "compromised").
+  - 2.2 Review Focus 1: RPC Node Unreachable Returns Unavailable Without False Claims.
+  - 2.3 Review Focus 4: AI Engine Connection Refusal Handled Gracefully.
+- Created playwright.config.js for sequential single-worker execution with json and list reporters.
+- Created cross-platform integration orchestrator in scripts/run-integration.js and scripts/run-integration.ps1 that spawns local Hardhat node, deploys and bootstraps contracts via scripts/deploy.js, launches FastAPI engine on port 8000, runs Playwright tests, and cleans up all processes.
+- Implemented live EVM RPC client in ai-engine/app/services/evm_rpc_client.py querying deployed ForensicTrail for consensus anchor state.
+- Updated ai-engine/app/routes/v2/evidence.py to integrate EvmRpcClient with deployment manifest and BLOCKCHAIN_RPC_URL fallback.
+- Added verify-integration job to .github/workflows/verify.yml.
+- Added test:integration and verify:integration scripts to root package.json and wired into verify:all.
+- Generated and verified test-results/verification-receipt.json audit artifact.
+- Authored comprehensive G1 Trust Gate Report in docs/verification/g1-trust.md documenting all evidence, manifests, hashes, and R01–R07/R10 checklist.
+- All gates passed: 143/143 Hardhat tests, 44/44 Python tests, 13/13 Vitest tests, 7/7 Node shared tests, and 7/7 Playwright integration tests. G1 Trust Gate achieved!
+

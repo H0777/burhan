@@ -20,9 +20,25 @@ function findPython() {
   return process.platform === 'win32' ? 'python' : 'python3';
 }
 
+const path = require('path');
+
 const pythonBin = findPython();
 const args = process.argv.slice(2);
-const result = spawnSync(pythonBin, args, { stdio: 'inherit' });
+const aiEngineDir = path.join(__dirname, '..', 'ai-engine');
+const currentPythonPath = process.env.PYTHONPATH || '';
+const combinedPythonPath = currentPythonPath
+  ? `${aiEngineDir}${path.delimiter}${currentPythonPath}`
+  : aiEngineDir;
+
+const result = spawnSync(pythonBin, args, {
+  stdio: 'inherit',
+  env: {
+    ...process.env,
+    PYTHONPATH: combinedPythonPath,
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONUTF8: '1',
+  },
+});
 
 if (result.error) {
   console.error('[run-python] Failed to execute Python:', result.error.message);

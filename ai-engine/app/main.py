@@ -20,11 +20,11 @@ from app.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
-    print("🤖 AI Engine starting...")
+    print("[AI-Engine] AI Engine starting...")
     print(f"   Mode: {'API + Local' if settings.GEMINI_API_KEY else 'Local Only'}")
     print(f"   Model: {settings.LOCAL_MODEL_PATH}")
     yield
-    print("🤖 AI Engine shutting down...")
+    print("[AI-Engine] AI Engine shutting down...")
 
 
 app = FastAPI(
