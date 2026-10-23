@@ -1,0 +1,1004 @@
+{
+  "components": {
+    "schemas": {
+      "AnchorInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "blockHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockhash"
+          },
+          "blockNumber": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocknumber"
+          },
+          "chainId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chainid"
+          },
+          "contractAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contractaddress"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head"
+          }
+        },
+        "title": "AnchorInfo",
+        "type": "object"
+      },
+      "BatchScoreRequest": {
+        "properties": {
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionPayload"
+            },
+            "title": "Transactions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "transactions"
+        ],
+        "title": "BatchScoreRequest",
+        "type": "object"
+      },
+      "ChainVerificationRequest": {
+        "properties": {
+          "evidence_chain": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "minItems": 1,
+            "title": "Evidence Chain",
+            "type": "array"
+          }
+        },
+        "required": [
+          "evidence_chain"
+        ],
+        "title": "ChainVerificationRequest",
+        "type": "object"
+      },
+      "ContractScanRequest": {
+        "properties": {
+          "code": {
+            "description": "Solidity smart contract source code",
+            "minLength": 10,
+            "title": "Code",
+            "type": "string"
+          },
+          "contract_name": {
+            "default": "SmartContract",
+            "description": "Name of the contract under audit",
+            "title": "Contract Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ContractScanRequest",
+        "type": "object"
+      },
+      "EvidenceV2": {
+        "additionalProperties": false,
+        "properties": {
+          "chainId": {
+            "title": "Chainid",
+            "type": "integer"
+          },
+          "contractAddress": {
+            "title": "Contractaddress",
+            "type": "string"
+          },
+          "descriptionHash": {
+            "title": "Descriptionhash",
+            "type": "string"
+          },
+          "entryHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entryhash"
+          },
+          "evidenceHash": {
+            "title": "Evidencehash",
+            "type": "string"
+          },
+          "evidenceId": {
+            "title": "Evidenceid",
+            "type": "integer"
+          },
+          "evidenceTypeHash": {
+            "title": "Evidencetypehash",
+            "type": "string"
+          },
+          "incidentId": {
+            "title": "Incidentid",
+            "type": "integer"
+          },
+          "previousEntryHash": {
+            "title": "Previousentryhash",
+            "type": "string"
+          },
+          "schemaVersion": {
+            "default": 2,
+            "title": "Schemaversion",
+            "type": "integer"
+          },
+          "submittedBy": {
+            "title": "Submittedby",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "chainId",
+          "contractAddress",
+          "incidentId",
+          "evidenceId",
+          "submittedBy",
+          "timestamp",
+          "evidenceTypeHash",
+          "descriptionHash",
+          "evidenceHash",
+          "previousEntryHash"
+        ],
+        "title": "EvidenceV2",
+        "type": "object"
+      },
+      "EvidenceVerificationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "caseId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caseid"
+          },
+          "chainId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 1337,
+            "title": "Chainid"
+          },
+          "contractAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contractaddress"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceV2"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "evidenceIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidenceids"
+          },
+          "incidentId": {
+            "title": "Incidentid",
+            "type": "integer"
+          },
+          "schemaVersion": {
+            "default": 2,
+            "title": "Schemaversion",
+            "type": "integer"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SnapshotInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "incidentId"
+        ],
+        "title": "EvidenceVerificationRequest",
+        "type": "object"
+      },
+      "EvidenceVerificationResult": {
+        "additionalProperties": false,
+        "properties": {
+          "anchor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "block_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Hash"
+          },
+          "block_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Number"
+          },
+          "checked_entries": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceV2"
+            },
+            "title": "Checked Entries",
+            "type": "array"
+          },
+          "provenance_status": {
+            "default": "unknown",
+            "title": "Provenance Status",
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "registry_trusted_contract",
+            "title": "Source"
+          },
+          "status": {
+            "description": "'verified' | 'invalid' | 'unavailable'",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "EvidenceVerificationResult",
+        "type": "object"
+      },
+      "ForensicReportRequest": {
+        "properties": {
+          "evidence_chain": {
+            "description": "Ordered chain of custody entries",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence Chain",
+            "type": "array"
+          },
+          "incident_id": {
+            "description": "Incident ID from ForensicTrail",
+            "exclusiveMinimum": 0.0,
+            "title": "Incident Id",
+            "type": "integer"
+          },
+          "insider_data": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Behavioral metrics of target operator",
+            "title": "Insider Data"
+          },
+          "language": {
+            "default": "en",
+            "description": "Report language: 'en' for English, 'ar' for Arabic",
+            "title": "Language",
+            "type": "string"
+          },
+          "reported_by": {
+            "description": "Investigator address or entity",
+            "title": "Reported By",
+            "type": "string"
+          },
+          "severity": {
+            "default": "HIGH",
+            "description": "Severity: LOW, MEDIUM, HIGH, CRITICAL",
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "description": "Incident title or fraud type",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id",
+          "title",
+          "reported_by"
+        ],
+        "title": "ForensicReportRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LiveHealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "service": {
+            "default": "ai-engine",
+            "description": "Service identifier",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "default": "live",
+            "description": "Liveness state",
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "ISO UTC timestamp",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timestamp"
+        ],
+        "title": "LiveHealthResponse",
+        "type": "object"
+      },
+      "OperatorMetricsPayload": {
+        "properties": {
+          "after_hours_count": {
+            "default": 0,
+            "description": "Number of actions outside business hours",
+            "minimum": 0.0,
+            "title": "After Hours Count",
+            "type": "integer"
+          },
+          "flag_count": {
+            "default": 0,
+            "description": "Contract automated flag count",
+            "minimum": 0.0,
+            "title": "Flag Count",
+            "type": "integer"
+          },
+          "max_beneficiary_approvals": {
+            "default": 0,
+            "description": "Max approvals granted to a single beneficiary",
+            "minimum": 0.0,
+            "title": "Max Beneficiary Approvals",
+            "type": "integer"
+          },
+          "operator_address": {
+            "description": "Ethereum address of the authorized operator",
+            "title": "Operator Address",
+            "type": "string"
+          },
+          "override_count": {
+            "default": 0,
+            "description": "Number of compliance overrides performed",
+            "minimum": 0.0,
+            "title": "Override Count",
+            "type": "integer"
+          },
+          "rapid_approval_count": {
+            "default": 0,
+            "description": "Fast approvals in < 5 seconds",
+            "minimum": 0.0,
+            "title": "Rapid Approval Count",
+            "type": "integer"
+          },
+          "reversed_decisions_count": {
+            "default": 0,
+            "description": "Decisions blocked then cleared",
+            "minimum": 0.0,
+            "title": "Reversed Decisions Count",
+            "type": "integer"
+          },
+          "total_actions": {
+            "default": 1,
+            "description": "Total operations performed by operator",
+            "minimum": 0.0,
+            "title": "Total Actions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operator_address"
+        ],
+        "title": "OperatorMetricsPayload",
+        "type": "object"
+      },
+      "PolicyThresholds": {
+        "additionalProperties": false,
+        "properties": {
+          "daily_volume_limit": {
+            "description": "Daily volume limit in minor units",
+            "title": "Daily Volume Limit",
+            "type": "string"
+          },
+          "kyc_required_threshold": {
+            "description": "KYC verification trigger in minor units",
+            "title": "Kyc Required Threshold",
+            "type": "string"
+          },
+          "large_transaction": {
+            "description": "Large tx reporting threshold in minor units",
+            "title": "Large Transaction",
+            "type": "string"
+          },
+          "max_daily_transactions": {
+            "description": "Max transactions allowed per day",
+            "title": "Max Daily Transactions",
+            "type": "integer"
+          },
+          "max_single_transaction": {
+            "description": "Hard single transaction cap in minor units",
+            "title": "Max Single Transaction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "large_transaction",
+          "daily_volume_limit",
+          "max_daily_transactions",
+          "max_single_transaction",
+          "kyc_required_threshold"
+        ],
+        "title": "PolicyThresholds",
+        "type": "object"
+      },
+      "PolicyVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "asset": {
+            "description": "Asset symbol (ETH, IQD)",
+            "title": "Asset",
+            "type": "string"
+          },
+          "currency": {
+            "description": "Currency symbol",
+            "title": "Currency",
+            "type": "string"
+          },
+          "effective_at": {
+            "description": "Effective ISO UTC timestamp",
+            "title": "Effective At",
+            "type": "string"
+          },
+          "institution_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Institutional partition scope",
+            "title": "Institution Id"
+          },
+          "policy_id": {
+            "description": "Unique policy identifier",
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "scale": {
+            "description": "Decimal scale (18 for ETH wei, 3 for IQD fils)",
+            "title": "Scale",
+            "type": "integer"
+          },
+          "source": {
+            "description": "Source of policy authority (on_chain_audit_engine, regulatory_fixture)",
+            "title": "Source",
+            "type": "string"
+          },
+          "thresholds": {
+            "$ref": "#/components/schemas/PolicyThresholds",
+            "description": "Active threshold configuration in minor units"
+          },
+          "version": {
+            "description": "Semantic or profile version",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_id",
+          "version",
+          "asset",
+          "currency",
+          "scale",
+          "thresholds",
+          "effective_at",
+          "source"
+        ],
+        "title": "PolicyVersion",
+        "type": "object"
+      },
+      "ReadyHealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Individual subsystem health status",
+            "title": "Checks",
+            "type": "object"
+          },
+          "details": {
+            "additionalProperties": true,
+            "description": "Metadata and version indicators",
+            "title": "Details",
+            "type": "object"
+          },
+          "live": {
+            "default": true,
+            "description": "Liveness flag",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "ready": {
+            "description": "Subsystem readiness flag",
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Readiness state ('ready' | 'degraded')",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "ready",
+          "checks"
+        ],
+        "title": "ReadyHealthResponse",
+        "type": "object"
+      },
+      "SnapshotInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "blockHash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blockhash"
+          },
+          "blockNumber": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocknumber"
+          }
+        },
+        "title": "SnapshotInfo",
+        "type": "object"
+      },
+      "TransactionPayload": {
+        "properties": {
+          "amount": {
+            "description": "Transaction amount in ETH/wei-unit",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount",
+            "type": "number"
+          },
+          "daily_volume_limit": {
+            "default": 50000.0,
+            "description": "Active policy daily volume limit",
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Volume Limit",
+            "type": "number"
+          },
+          "is_after_hours": {
+            "default": false,
+            "description": "Whether transaction occurred outside 8am-5pm",
+            "title": "Is After Hours",
+            "type": "boolean"
+          },
+          "is_kyc_verified": {
+            "default": false,
+            "description": "Sender KYC verification status",
+            "title": "Is Kyc Verified",
+            "type": "boolean"
+          },
+          "large_threshold": {
+            "default": 10000.0,
+            "description": "Active policy large transaction ceiling",
+            "exclusiveMinimum": 0.0,
+            "title": "Large Threshold",
+            "type": "number"
+          },
+          "max_daily_transactions": {
+            "default": 20,
+            "description": "Maximum daily transactions allowed",
+            "exclusiveMinimum": 0.0,
+            "title": "Max Daily Transactions",
+            "type": "integer"
+          },
+          "rapid_burst_count": {
+            "default": 0,
+            "description": "Transactions sent within past 10 minutes",
+            "minimum": 0.0,
+            "title": "Rapid Burst Count",
+            "type": "integer"
+          },
+          "receiver_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Receiver Ethereum address",
+            "title": "Receiver Address"
+          },
+          "sender_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sender Ethereum address",
+            "title": "Sender Address"
+          },
+          "sender_daily_count": {
+            "default": 1,
+            "description": "Count of transactions sent today",
+            "minimum": 0.0,
+            "title": "Sender Daily Count",
+            "type": "integer"
+          },
+          "sender_daily_volume": {
+            "default": 0.0,
+            "description": "24h cumulative volume for sender",
+            "minimum": 0.0,
+            "title": "Sender Daily Volume",
+            "type": "number"
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "title": "TransactionPayload",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Authoritative contract for institutional evidence verification, policy resolution, and lifecycle readiness.",
+    "title": "Cyber-Forensic Auditing Framework - V2 API",
+    "version": "2.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v2/evidence/verify": {
+      "post": {
+        "description": "Independently verifies an Evidence V2 payload against cryptographic hashing rules\nand on-chain anchor consensus.",
+        "operationId": "verify_evidence_endpoint_api_v2_evidence_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvidenceVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceVerificationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify evidence chain independently",
+        "tags": [
+          "Evidence V2"
+        ]
+      }
+    },
+    "/api/v2/health/live": {
+      "get": {
+        "description": "Confirms the process is running and able to handle HTTP traffic.",
+        "operationId": "live_check_api_v2_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Process liveness check",
+        "tags": [
+          "Health V2"
+        ]
+      }
+    },
+    "/api/v2/health/ready": {
+      "get": {
+        "description": "Verifies that required internal subsystems (ML engine, policy service, schemas)\nare operational.",
+        "operationId": "ready_check_api_v2_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Subsystem readiness check",
+        "tags": [
+          "Health V2"
+        ]
+      }
+    },
+    "/api/v2/policies/active": {
+      "get": {
+        "description": "Returns the authoritative active AML/KYC policy version and minor-unit thresholds\nfor the requested asset and institutional scope.",
+        "operationId": "get_active_policy_endpoint_api_v2_policies_active_get",
+        "parameters": [
+          {
+            "description": "Asset identifier (ETH, IQD)",
+            "in": "query",
+            "name": "asset",
+            "required": false,
+            "schema": {
+              "default": "ETH",
+              "description": "Asset identifier (ETH, IQD)",
+              "title": "Asset",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Institution partition ID",
+            "in": "query",
+            "name": "institutionId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Institution partition ID",
+              "title": "Institutionid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyVersion"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get active compliance policy",
+        "tags": [
+          "Policies V2"
+        ]
+      }
+    }
+  }
+}
