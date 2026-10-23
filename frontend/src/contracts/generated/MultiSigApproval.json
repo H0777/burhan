@@ -293,8 +293,13 @@
   {
     "inputs": [
       {
+        "internalType": "bytes32[]",
+        "name": "_participantIds",
+        "type": "bytes32[]"
+      },
+      {
         "internalType": "address[]",
-        "name": "_participants",
+        "name": "_wallets",
         "type": "address[]"
       },
       {
