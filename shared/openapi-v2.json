@@ -440,6 +440,94 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Identity": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization_generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Authorization generation for vote validation",
+            "title": "Authorization Generation"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional user email for audit logs",
+            "title": "Email"
+          },
+          "institution_id": {
+            "description": "Institutional tenant identifier (e.g. INST-CBI-IQ-01)",
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "issuer": {
+            "description": "OIDC Token Issuer URL",
+            "title": "Issuer",
+            "type": "string"
+          },
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque 32-byte hex participant ID",
+            "title": "Participant Id"
+          },
+          "permissions": {
+            "description": "Explicit RBAC scopes/permissions",
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleEnum",
+            "default": "NONE",
+            "description": "Assigned institutional RBAC role"
+          },
+          "sub": {
+            "description": "Unique OIDC user subject identifier",
+            "title": "Sub",
+            "type": "string"
+          },
+          "wallet_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Currently bound active EVM wallet address",
+            "title": "Wallet Address"
+          }
+        },
+        "required": [
+          "sub",
+          "issuer",
+          "institution_id"
+        ],
+        "title": "Identity",
+        "type": "object"
+      },
       "LiveHealthResponse": {
         "additionalProperties": false,
         "properties": {
@@ -679,6 +767,17 @@
         "title": "ReadyHealthResponse",
         "type": "object"
       },
+      "RoleEnum": {
+        "enum": [
+          "SUPER_ADMIN",
+          "AUDITOR",
+          "OPERATOR",
+          "REGULATOR",
+          "NONE"
+        ],
+        "title": "RoleEnum",
+        "type": "string"
+      },
       "SnapshotInfo": {
         "additionalProperties": false,
         "properties": {
@@ -840,6 +939,126 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WalletBindingResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "authorization_generation": {
+            "description": "Active authorization generation",
+            "title": "Authorization Generation",
+            "type": "integer"
+          },
+          "bound": {
+            "description": "Whether wallet is bound and authorized",
+            "title": "Bound",
+            "type": "boolean"
+          },
+          "institution_id": {
+            "description": "Institutional tenant",
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "participant_id": {
+            "description": "Institutional participant identifier",
+            "title": "Participant Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleEnum",
+            "description": "Assigned role"
+          },
+          "wallet_address": {
+            "description": "EVM address bound to this identity",
+            "title": "Wallet Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bound",
+          "wallet_address",
+          "institution_id",
+          "participant_id",
+          "role",
+          "authorization_generation"
+        ],
+        "title": "WalletBindingResponse",
+        "type": "object"
+      },
+      "WalletChallengeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "chain_id": {
+            "default": 31337,
+            "description": "EVM chain ID where contracts are deployed",
+            "title": "Chain Id",
+            "type": "integer"
+          },
+          "wallet_address": {
+            "description": "EVM wallet address to bind (0x prefix, 42 chars)",
+            "title": "Wallet Address",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wallet_address"
+        ],
+        "title": "WalletChallengeRequest",
+        "type": "object"
+      },
+      "WalletChallengeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_id": {
+            "description": "Unique single-use challenge identifier",
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "UTC expiration timestamp (5-minute TTL)",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "message": {
+            "description": "EIP-4361 compliant sign-in message string",
+            "title": "Message",
+            "type": "string"
+          },
+          "nonce": {
+            "description": "Cryptographic alphanumeric nonce",
+            "title": "Nonce",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "nonce",
+          "message",
+          "expires_at"
+        ],
+        "title": "WalletChallengeResponse",
+        "type": "object"
+      },
+      "WalletVerifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_id": {
+            "description": "Challenge ID returned by challenge endpoint",
+            "title": "Challenge Id",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Hex encoded EIP-191 signature (0x-prefixed, 65 bytes)",
+            "title": "Signature",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "signature"
+        ],
+        "title": "WalletVerifyRequest",
+        "type": "object"
       }
     }
   },
@@ -936,6 +1155,56 @@
         ]
       }
     },
+    "/api/v2/identity/me": {
+      "get": {
+        "description": "Returns the caller's verified institutional identity, RBAC role, and active wallet binding.",
+        "operationId": "get_me_api_v2_identity_me_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Identity"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get current authenticated identity and binding",
+        "tags": [
+          "Identity & Wallet V2"
+        ]
+      }
+    },
     "/api/v2/policies/active": {
       "get": {
         "description": "Returns the authoritative active AML/KYC policy version and minor-unit thresholds\nfor the requested asset and institutional scope.",
@@ -997,6 +1266,126 @@
         "summary": "Get active compliance policy",
         "tags": [
           "Policies V2"
+        ]
+      }
+    },
+    "/api/v2/wallet/challenge": {
+      "post": {
+        "description": "Issues a single-use EIP-4361 SIWE challenge bound to the user's institution and subject.",
+        "operationId": "issue_wallet_challenge_api_v2_wallet_challenge_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletChallengeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Issue single-use SIWE wallet challenge",
+        "tags": [
+          "Identity & Wallet V2"
+        ]
+      }
+    },
+    "/api/v2/wallet/verify": {
+      "post": {
+        "description": "Verifies an EIP-191 signature over the SIWE challenge and establishes or updates\ninstitutional wallet binding with an incremented authorization generation.",
+        "operationId": "verify_wallet_binding_api_v2_wallet_verify_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletBindingResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify SIWE signature and bind EVM wallet",
+        "tags": [
+          "Identity & Wallet V2"
         ]
       }
     }

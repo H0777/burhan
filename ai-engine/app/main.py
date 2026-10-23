@@ -14,6 +14,7 @@ from app.routes import risk_scoring, insider_detection, contract_scanner, forens
 from app.routes.v2 import evidence as evidence_v2
 from app.routes.v2 import policies as policies_v2
 from app.routes.v2 import health as health_v2
+from app.routes.v2 import identity as identity_v2
 from app.config import settings
 
 
@@ -55,6 +56,7 @@ app.include_router(forensic_report.router, prefix="/api/v1/forensic", tags=["For
 app.include_router(evidence_v2.router, prefix="/api/v2/evidence", tags=["Evidence V2"])
 app.include_router(policies_v2.router, prefix="/api/v2/policies", tags=["Policies V2"])
 app.include_router(health_v2.router, prefix="/api/v2/health", tags=["Health V2"])
+app.include_router(identity_v2.router, prefix="/api/v2", tags=["Identity & Wallet V2"])
 
 
 @app.get("/api/v1/health", tags=["System"])

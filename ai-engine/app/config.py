@@ -11,12 +11,19 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables or .env file."""
 
-    # Institution and deployment configuration (Specification §7)
     INSTITUTION_ID: str = "INST-CENTRAL-DEMO"
     CHAIN_ID: int = 1337
     DEPLOYMENT_MANIFEST_PATH: str = str(
         Path(__file__).parent.parent.parent / "deployments" / "deployment-manifest.json"
     )
+
+    # OIDC & Identity configuration (T13, R10)
+    OIDC_ENABLED: bool = False
+    OIDC_ISSUER: str = "https://auth.institutional-cbi.iq/oauth2"
+    OIDC_AUDIENCE: str = "iraq-aml-audit-engine"
+    OIDC_JWKS_URL: str = ""
+    WALLET_CHALLENGE_DOMAIN: str = "iraq-aml-audit.cbi.iq"
+    WALLET_CHALLENGE_TTL_SECONDS: int = 300
 
     # Gemini API (optional — system works without it)
     GEMINI_API_KEY: str = ""

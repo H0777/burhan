@@ -160,3 +160,28 @@ export function shortAddress(address) {
   if (!address) return ''
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
+
+/**
+ * Query on-chain participant enrollment and authorization generation from RoleManager.
+ * @param {string} address
+ * @param {ethers.Provider} [provider]
+ * @returns {Promise<{participantId: string, generation: number, role: number, active: boolean}|null>}
+ */
+export async function getOnChainParticipant(address, provider = null) {
+  if (!address || !ethers.isAddress(address)) return null
+  const p = provider || getProvider()
+  const roleManager = getContractInstance('RoleManager', p)
+  try {
+    const [participantId, generation, role, active] = await roleManager.getParticipant(address)
+    return {
+      participantId,
+      generation: Number(generation),
+      role: Number(role),
+      active: Boolean(active),
+    }
+  } catch (err) {
+    console.warn(`[Contract] Failed to fetch on-chain participant for ${address}:`, err.message)
+    return null
+  }
+}
+
