@@ -28,10 +28,15 @@ class Settings(BaseSettings):
     # Gemini API (optional — system works without it)
     GEMINI_API_KEY: str = ""
 
-    # Local ML model path
+    # Local ML model configuration (T19)
     LOCAL_MODEL_PATH: str = str(
-        Path(__file__).parent.parent / "models" / "pretrained" / "fraud_model.pkl"
+        Path(__file__).parent.parent / "models" / "pretrained" / "fraud_model.joblib"
     )
+    FRAUD_MODEL_PATH: str = str(
+        Path(__file__).parent.parent / "models" / "pretrained" / "fraud_model.joblib"
+    )
+    FRAUD_MODEL_EXPECTED_HASH: str = ""
+    ENABLE_ML_INFERENCE: bool = True
 
     # Blockchain connection
     BLOCKCHAIN_RPC_URL: str = "http://127.0.0.1:8545"

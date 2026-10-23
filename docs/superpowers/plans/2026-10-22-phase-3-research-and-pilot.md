@@ -65,11 +65,11 @@
 
 **Interfaces:** `ModelArtifact{model_hash,feature_schema,training_dataset_hash,library_versions,created_at,metrics}`؛ `load_validated_model(path,expected_hash)->ModelStatus`؛ لا قبول pickle مرفوع من مستخدم، ولا marker نصي باسم model ناجح. سجلات loading صريحة وreadiness تعكس الحقيقة.
 
-- [ ] اختبر split leakage، artifact مفقود/معدل، feature order غير مطابق، اختلاف نسخة مكتبة، ونموذج يفشل مع baseline؛ لا تسقط الأخطاء في pass صامت.
-- [ ] شغّل `python -m pytest -q tests/test_model_registry.py` من ai-engine و`python -m pytest -q research/tests/test_splits.py` من الجذر بعد تهيئة import paths الموثقة.
-- [ ] طبق train/evaluate وmanifest A01 وإزالة generator الذي يكتب placeholder كنموذج؛ artifact موثوق للقراءة فقط، مع pin اعتماديات وتحقيق hash قبل joblib.load.
-- [ ] شغّل من الجذر `python research/run_experiments.py --config research/protocol.json` بعد إنشاء config المكافئ للبروتوكول؛ سجّل النتائج الفعلية للنسخ الثلاث؛ نفس manifests تعطي نفس splits ونتائج ضمن tolerance مكتوبة1e-6 عند البيئة المقفلة.
-- [ ] اكتب model/dataset cards والقيود وقرار التفعيل؛ راجع وcommit الملفات النصية والملخصات، والبيانات الحساسة لا تدخل Git.
+- [x] اختبر split leakage، artifact مفقود/معدل، feature order غير مطابق، اختلاف نسخة مكتبة، ونموذج يفشل مع baseline؛ لا تسقط الأخطاء في pass صامت.
+- [x] شغّل `python -m pytest -q tests/test_model_registry.py` من ai-engine و`python -m pytest -q research/tests/test_splits.py` من الجذر بعد تهيئة import paths الموثقة.
+- [x] طبق train/evaluate وmanifest A01 وإزالة generator الذي يكتب placeholder كنموذج؛ artifact موثوق للقراءة فقط، مع pin اعتماديات وتحقيق hash قبل joblib.load.
+- [x] شغّل من الجذر `python research/run_experiments.py --config research/protocol.json` بعد إنشاء config المكافئ للبروتوكول؛ سجّل النتائج الفعلية للنسخ الثلاث؛ نفس manifests تعطي نفس splits ونتائج ضمن tolerance مكتوبة1e-6 عند البيئة المقفلة.
+- [x] اكتب model/dataset cards والقيود وقرار التفعيل؛ راجع وcommit الملفات النصية والملخصات، والبيانات الحساسة لا تدخل Git.
 
 **القبول:** لا claim بتحميل/دقة ML دون artifact صالح وتقييم؛ النتيجة السلبية مخرج بحثي مقبول وتبقى القواعد فعالة.
 

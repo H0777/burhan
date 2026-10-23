@@ -1,0 +1,58 @@
+{
+  "protocol_version": "1.0.0",
+  "title": "Empirical Evaluation Protocol for Hybrid AML Anomaly Detection",
+  "description": "Governs subject-isolated, temporally partitioned experiments comparing rules-based, ML-only, and hybrid models",
+  "seeds": [42, 43, 44],
+  "default_seed": 42,
+  "dataset": {
+    "path": "research/data/iqd_aml_transactions.csv",
+    "name": "IQD-AML-2026",
+    "currency": "IQD",
+    "scale": 3,
+    "total_records": 10000
+  },
+  "splits": {
+    "train_ratio": 0.70,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "temporal_split": true,
+    "subject_isolation": true
+  },
+  "features": [
+    "amount_minor",
+    "sender_daily_volume_minor",
+    "sender_daily_count",
+    "sender_window_burst_10m",
+    "is_after_hours",
+    "structuring_ratio"
+  ],
+  "label_column": "is_sar_reportable",
+  "models": [
+    {
+      "name": "rules_only",
+      "type": "RULES_BASELINE",
+      "policy_id": "DEMO-IQD-1"
+    },
+    {
+      "name": "ml_isolation_forest",
+      "type": "ISOLATION_FOREST",
+      "hyperparameters": {
+        "n_estimators": 150,
+        "contamination": 0.10,
+        "max_samples": "auto"
+      }
+    },
+    {
+      "name": "hybrid_ensemble",
+      "type": "HYBRID_ENSEMBLE",
+      "rule_weight": 0.60,
+      "ml_weight": 0.40
+    }
+  ],
+  "acceptance_gates": {
+    "min_recall": 0.85,
+    "max_fpr_per_1000": 50.0,
+    "min_pr_auc": 0.80,
+    "max_latency_p95_ms": 25.0
+  }
+}
