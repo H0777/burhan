@@ -88,6 +88,7 @@ class Case(Base):
     __table_args__ = (
         UniqueConstraint("institution_id", "case_number", name="uq_case_institution_number"),
         UniqueConstraint("institution_id", "id", name="uq_case_institution_id"),
+        Index("ix_cases_inst_status_created", "institution_id", "status", "created_at"),
     )
 
 
@@ -229,6 +230,7 @@ class TransactionRecord(Base):
     __table_args__ = (
         UniqueConstraint("institution_id", "source", "external_id", name="uq_tx_inst_source_ext"),
         Index("ix_tx_inst_occurred", "institution_id", "occurred_at"),
+        Index("ix_tx_inst_sender_occurred", "institution_id", "sender_ref", "occurred_at"),
     )
 
 

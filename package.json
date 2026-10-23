@@ -25,6 +25,7 @@
     "verify:api": "node --test shared/tests/evidence-hash.test.mjs shared/tests/currency.test.mjs && node scripts/run-python.js scripts/check-openapi.py && node scripts/run-python.js -m pytest -q ai-engine/tests",
     "verify:frontend": "npm --prefix frontend run lint && npm --prefix frontend test -- --run && npm --prefix frontend run build",
     "test:integration": "node scripts/run-integration.js",
+    "test:load": "node tests/load/scenarios.js",
     "verify:integration": "node scripts/run-integration.js",
     "verify:all": "npm run verify:contracts && npm run verify:api && npm run verify:frontend && npm run verify:integration"
   },
