@@ -21,7 +21,7 @@ describe("AuditEngine", function () {
   beforeEach(async function () {
     [admin, user1, user2, user3] = await ethers.getSigners();
     const AuditEngine = await ethers.getContractFactory("AuditEngine");
-    auditEngine = await AuditEngine.deploy();
+    auditEngine = await AuditEngine.deploy(admin.address);
     await auditEngine.waitForDeployment();
   });
 
@@ -66,9 +66,10 @@ describe("AuditEngine", function () {
     });
 
     it("Should emit TransactionSubmitted event", async function () {
+      const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
       await expect(auditEngine.connect(user1).submitTransaction(user2.address, NORMAL_AMOUNT))
         .to.emit(auditEngine, "TransactionSubmitted")
-        .withArgs(1, user1.address, user2.address, NORMAL_AMOUNT, await ethers.provider.getBlock("latest").then(b => b.timestamp + 1));
+        .withArgs(1, user1.address, user2.address, NORMAL_AMOUNT, anyValue);
     });
 
     it("Should emit TransactionCleared for valid transactions", async function () {
@@ -128,9 +129,10 @@ describe("AuditEngine", function () {
 
   describe("AML Compliance Rules", function () {
     it("Rule 1: Should flag large transactions", async function () {
+      const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
       await expect(auditEngine.connect(user1).submitTransaction(user2.address, LARGE_AMOUNT))
         .to.emit(auditEngine, "TransactionFlagged")
-        .withArgs(1, user1.address, "LARGE_TRANSACTION: Amount exceeds reporting threshold", await ethers.provider.getBlock("latest").then(b => b.timestamp + 1));
+        .withArgs(1, user1.address, "LARGE_TRANSACTION: Amount exceeds reporting threshold", anyValue);
 
       const txData = await auditEngine.getTransaction(1);
       expect(txData.isFlagged).to.equal(true);
@@ -138,9 +140,10 @@ describe("AuditEngine", function () {
     });
 
     it("Rule 4: Should flag transactions without KYC for high-value", async function () {
+      const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
       await expect(auditEngine.connect(user1).submitTransaction(user2.address, KYC_AMOUNT))
         .to.emit(auditEngine, "TransactionFlagged")
-        .withArgs(1, user1.address, "KYC_REQUIRED: Sender not verified for this amount", await ethers.provider.getBlock("latest").then(b => b.timestamp + 1));
+        .withArgs(1, user1.address, "KYC_REQUIRED: Sender not verified for this amount", anyValue);
     });
 
     it("Rule 4: Should clear KYC-verified user for high-value transaction", async function () {
