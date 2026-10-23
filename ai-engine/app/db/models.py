@@ -257,14 +257,24 @@ class PolicyVersionRecord(Base):
 
     id = Column(String(64), primary_key=True)
     institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
-    version_number = Column(Integer, nullable=False)
-    policy_hash = Column(String(64), nullable=False)
-    rules_json = Column(Text, nullable=False)
+    policy_id = Column(String(64), nullable=False, index=True)
+    version = Column(String(32), nullable=False)
+    version_number = Column(Integer, nullable=True)
+    policy_hash = Column(String(64), nullable=True)
+    rules_json = Column(Text, nullable=True)
+    currency = Column(String(8), nullable=False, default="IQD")
+    scale = Column(Integer, nullable=False, default=3)
+    large_threshold_minor = Column(BigInteger, nullable=False, default=15000000000)
+    daily_volume_limit_minor = Column(BigInteger, nullable=False, default=75000000000)
+    max_daily_transactions = Column(Integer, nullable=False, default=20)
+    max_after_hours_actions = Column(Integer, nullable=False, default=3)
+    max_warning_overrides = Column(Integer, nullable=False, default=5)
     is_active = Column(Boolean, default=True, nullable=False)
+    activated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("institution_id", "version_number", name="uq_policy_inst_version"),
+        UniqueConstraint("institution_id", "policy_id", "version", name="uq_policy_version_inst_ver"),
     )
 
 
@@ -273,15 +283,27 @@ class AssessmentRecord(Base):
 
     id = Column(String(64), primary_key=True)
     institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    transaction_id = Column(String(64), ForeignKey("transactions.id", ondelete="CASCADE"), nullable=True, index=True)
     case_id = Column(String(64), nullable=True)
-    assessment_type = Column(String(32), nullable=False)  # "RULES", "ML", "HYBRID"
-    risk_level = Column(String(32), nullable=False)
-    score = Column(Integer, nullable=False)
-    reasons_json = Column(Text, nullable=False, default="[]")
+    assessment_type = Column(String(32), nullable=True, default="RULES")
+    policy_id = Column(String(64), nullable=True)
+    policy_version = Column(String(32), nullable=True)
+    score = Column(Integer, nullable=True)
+    fraud_score = Column(Integer, nullable=False, default=0)
+    risk_level = Column(String(16), nullable=False, default="LOW")
+    structuring_detected = Column(Boolean, default=False, nullable=False)
+    rules_triggered_json = Column(Text, nullable=False, default="[]")
+    feature_snapshot_json = Column(Text, nullable=False, default="{}")
+    features_hash = Column(String(66), nullable=True)
+    engine_version = Column(String(32), nullable=False, default="2.0.0")
+    model_loaded = Column(Boolean, default=False, nullable=False)
+    source = Column(String(32), nullable=False, default="AUTHORITATIVE")
+    reasons_json = Column(Text, nullable=True, default="[]")
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (
-        Index("ix_assessments_inst_case", "institution_id", "case_id"),
+        Index("ix_assessments_inst_tx", "institution_id", "transaction_id"),
+        Index("ix_assessments_inst_created", "institution_id", "created_at"),
     )
 
 
@@ -324,6 +346,9 @@ class CheckpointRecord(Base):
     __table_args__ = (
         UniqueConstraint("institution_id", "chain_id", "contract_address", name="uq_checkpoint_inst_chain_contract"),
     )
+
+
+
 
 
 # List of tables requiring PostgreSQL Row-Level Security

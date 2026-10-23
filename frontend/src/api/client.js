@@ -250,6 +250,58 @@ export class ApiV2Client {
     }
     return data
   }
+
+  /**
+   * Perform authoritative server-side risk assessment on an indexed transaction.
+   * @param {string} transactionId
+   * @param {Object} [options]
+   * @param {string|null} [options.asOf=null]
+   * @param {string|null} [options.token=null]
+   */
+  async assessTransaction(transactionId, { asOf = null, token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request('/api/v2/risk/assess', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        transaction_id: transactionId,
+        ...(asOf ? { as_of: asOf } : {})
+      })
+    })
+  }
+
+  /**
+   * Preview transaction risk score in simulation mode without persisting.
+   * @param {string} transactionId
+   * @param {Object} [options]
+   * @param {string|null} [options.asOf=null]
+   * @param {string|null} [options.token=null]
+   */
+  async previewRisk(transactionId, { asOf = null, token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request('/api/v2/risk/preview', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        transaction_id: transactionId,
+        ...(asOf ? { as_of: asOf } : {})
+      })
+    })
+  }
+
+  /**
+   * Get historical assessment records for a specific transaction.
+   * @param {string} transactionId
+   * @param {Object} [options]
+   * @param {string|null} [options.token=null]
+   */
+  async getTransactionAssessments(transactionId, { token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/risk/assessments/${encodeURIComponent(transactionId)}`, {
+      method: 'GET',
+      headers
+    })
+  }
 }
 
 // Default singleton instance

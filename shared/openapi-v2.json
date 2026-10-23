@@ -74,6 +74,154 @@
         "title": "AnchorInfo",
         "type": "object"
       },
+      "AssessmentListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AssessmentResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AssessmentListResponse",
+        "type": "object"
+      },
+      "AssessmentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional historical point-in-time timestamp",
+            "title": "As Of"
+          },
+          "transaction_id": {
+            "description": "Authoritative transaction ID or external reference",
+            "title": "Transaction Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_id"
+        ],
+        "title": "AssessmentRequest",
+        "type": "object"
+      },
+      "AssessmentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "assessment_id": {
+            "title": "Assessment Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "string"
+          },
+          "feature_snapshot": {
+            "additionalProperties": true,
+            "title": "Feature Snapshot",
+            "type": "object"
+          },
+          "features_hash": {
+            "title": "Features Hash",
+            "type": "string"
+          },
+          "fraud_score": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Fraud Score",
+            "type": "number"
+          },
+          "institution_id": {
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "model_loaded": {
+            "title": "Model Loaded",
+            "type": "boolean"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "risk_level": {
+            "description": "Risk category: LOW, MEDIUM, HIGH, CRITICAL",
+            "title": "Risk Level",
+            "type": "string"
+          },
+          "rules_triggered": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rules Triggered",
+            "type": "array"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "structuring_detected": {
+            "title": "Structuring Detected",
+            "type": "boolean"
+          },
+          "transaction_id": {
+            "title": "Transaction Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assessment_id",
+          "transaction_id",
+          "institution_id",
+          "as_of",
+          "policy_id",
+          "policy_version",
+          "fraud_score",
+          "risk_level",
+          "structuring_detected",
+          "rules_triggered",
+          "feature_snapshot",
+          "features_hash",
+          "engine_version",
+          "model_loaded",
+          "source",
+          "created_at"
+        ],
+        "title": "AssessmentResponse",
+        "type": "object"
+      },
       "BatchScoreRequest": {
         "properties": {
           "transactions": {
@@ -2455,6 +2603,185 @@
         "summary": "Get active compliance policy",
         "tags": [
           "Policies V2"
+        ]
+      }
+    },
+    "/api/v2/risk/assess": {
+      "post": {
+        "description": "Evaluates an authoritative transaction from the database against active compliance policies.\nRecords an immutable AssessmentRecord in the tenant ledger.",
+        "operationId": "assess_transaction_endpoint_api_v2_risk_assess_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssessmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssessmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Perform authoritative risk assessment on an indexed transaction",
+        "tags": [
+          "Risk V2"
+        ]
+      }
+    },
+    "/api/v2/risk/assessments/{transaction_id}": {
+      "get": {
+        "description": "Retrieves all historical assessment snapshots for a given transaction.",
+        "operationId": "get_transaction_assessments_api_v2_risk_assessments__transaction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssessmentListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get assessment history for a specific transaction",
+        "tags": [
+          "Risk V2"
+        ]
+      }
+    },
+    "/api/v2/risk/preview": {
+      "post": {
+        "description": "Simulates compliance risk evaluation for a transaction without persisting an AssessmentRecord.",
+        "operationId": "preview_transaction_endpoint_api_v2_risk_preview_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssessmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssessmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview transaction risk score in simulation mode without persisting",
+        "tags": [
+          "Risk V2"
         ]
       }
     },

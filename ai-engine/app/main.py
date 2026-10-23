@@ -17,6 +17,7 @@ from app.routes.v2 import policies as policies_v2
 from app.routes.v2 import health as health_v2
 from app.routes.v2 import identity as identity_v2
 from app.routes.v2 import transactions as transactions_v2
+from app.routes.v2 import risk as risk_v2
 from app.config import settings
 
 
@@ -68,6 +69,7 @@ app.include_router(health_v2.router, prefix="/api/v2/health", tags=["Health V2"]
 app.include_router(identity_v2.router, prefix="/api/v2", tags=["Identity & Wallet V2"])
 app.include_router(transactions_v2.router, prefix="/api/v2/transactions", tags=["Transactions V2"])
 app.include_router(transactions_v2.imports_router, prefix="/api/v2/imports", tags=["Imports V2"])
+app.include_router(risk_v2.router, prefix="/api/v2/risk", tags=["Risk V2"])
 
 
 @app.get("/api/v1/health", tags=["System"])

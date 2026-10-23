@@ -24,7 +24,11 @@ def get_engine(database_url: Optional[str] = None) -> Engine:
         connect_args = {}
         if url.startswith("sqlite"):
             connect_args["check_same_thread"] = False
-            eng = create_engine(url, connect_args=connect_args, echo=settings.DATABASE_ECHO)
+            from sqlalchemy.pool import StaticPool
+            kwargs = {"connect_args": connect_args, "echo": settings.DATABASE_ECHO}
+            if ":memory:" in url:
+                kwargs["poolclass"] = StaticPool
+            eng = create_engine(url, **kwargs)
             # Enable SQLite foreign keys
             @event.listens_for(eng, "connect")
             def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -40,8 +44,8 @@ def get_engine(database_url: Optional[str] = None) -> Engine:
                 echo=settings.DATABASE_ECHO,
             )
 
-        if database_url is None:
-            _engine = eng
+        _engine = eng
+        _session_factory = None
         return eng
 
     return _engine

@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExperimentManifest",
+  "type": "object",
+  "description": "Validation schema for Track A empirical experimentation manifests",
+  "required": [
+    "experiment_id",
+    "dataset_hash",
+    "split_hash",
+    "code_revision",
+    "config_hash",
+    "seed",
+    "policy_version",
+    "engine_version",
+    "model_hash",
+    "metrics",
+    "environment"
+  ],
+  "properties": {
+    "experiment_id": {
+      "type": "string",
+      "pattern": "^EXP-[A-Z0-9_-]+$"
+    },
+    "dataset_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{64}$"
+    },
+    "split_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{64}$"
+    },
+    "code_revision": {
+      "type": "string"
+    },
+    "config_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{64}$"
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "engine_version": {
+      "type": "string"
+    },
+    "model_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{64}$"
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["precision", "recall", "f1_score", "pr_auc", "fpr_per_1000"],
+      "properties": {
+        "precision": { "type": "number", "minimum": 0, "maximum": 1 },
+        "recall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "f1_score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "pr_auc": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fpr_per_1000": { "type": "number", "minimum": 0 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": ["python_version", "scikit_learn_version", "os"],
+      "properties": {
+        "python_version": { "type": "string" },
+        "scikit_learn_version": { "type": "string" },
+        "os": { "type": "string" }
+      }
+    }
+  },
+  "additionalProperties": false
+}
