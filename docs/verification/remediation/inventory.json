@@ -1,0 +1,598 @@
+{
+  "task": "R00 baseline evidence register",
+  "generated_at": "2026-10-23",
+  "reviewed_version": {
+    "head_sha": "1b94c5a92666eee736f8c1e62097e7a80d1cb82b",
+    "branch": "codex/verified-remediation",
+    "head_subject": "feat(ops): implement disaster recovery backup restore and bit-rot tamper detection (T23)",
+    "note": "Per design spec section 1, the reviewed baseline is HEAD 1b94c5a PLUS the uncommitted user edits of 2026-10-23 recorded below. The commit SHA alone does not describe the reviewed version."
+  },
+  "tool_versions": {
+    "node": "v24.19.0",
+    "npm": "11.17.0 (recorded from npm --version run 2026-10-23)",
+    "hardhat": "2.29.1 (recorded from npx hardhat --version run 2026-10-23)"
+  },
+  "git_status_short": [
+    " M README.md",
+    " M ai-engine/app/services/llm_provider.py",
+    " M ai-engine/app/services/scanner_service.py",
+    " M deployments/deployment-manifest.json",
+    " M frontend/index.html",
+    " M frontend/src/index.css",
+    " M frontend/vite.config.js",
+    " M hardhat.config.js",
+    "?? ai-engine/app/__init__.py",
+    "?? ai-engine/app/__pycache__/",
+    "?? ai-engine/app/connectors/__pycache__/",
+    "?? ai-engine/app/data/",
+    "?? ai-engine/app/db/__pycache__/",
+    "?? ai-engine/app/models/__pycache__/",
+    "?? ai-engine/app/models/insider_analyzer.py",
+    "?? ai-engine/app/models/pretrained/",
+    "?? ai-engine/app/repositories/__pycache__/",
+    "?? ai-engine/app/routes/__init__.py",
+    "?? ai-engine/app/routes/__pycache__/",
+    "?? ai-engine/app/routes/contract_scanner.py",
+    "?? ai-engine/app/routes/forensic_report.py",
+    "?? ai-engine/app/routes/insider_detection.py",
+    "?? ai-engine/app/routes/risk_scoring.py",
+    "?? ai-engine/app/routes/v2/__pycache__/",
+    "?? ai-engine/app/schemas/__pycache__/",
+    "?? ai-engine/app/security/__pycache__/",
+    "?? ai-engine/app/services/__pycache__/",
+    "?? ai-engine/app/workers/__pycache__/",
+    "?? ai-engine/models/",
+    "?? ai-engine/tests/__pycache__/",
+    "?? ai-engine/tests/integration/__pycache__/",
+    "?? ai-engine/tests/integration/test_security_findings_regression.py",
+    "?? ai-engine/tests/test_api_endpoints.py",
+    "?? ai-engine/tests/test_contract_scanner.py",
+    "?? ai-engine/tests/test_forensic_report.py",
+    "?? ai-engine/tests/test_fraud_detector.py",
+    "?? ai-engine/tests/test_insider_analyzer.py",
+    "?? cyber_audit_chain.db",
+    "?? deployments/localhost.json",
+    "?? docs/architecture.md",
+    "?? docs/defense-presentation.md",
+    "?? docs/security/",
+    "?? docs/superpowers/plans/2026-10-22-phase-1-trust-and-integration.md",
+    "?? docs/superpowers/plans/2026-10-22-phase-4-commercial-readiness.md",
+    "?? docs/superpowers/plans/2026-10-22-three-track-roadmap.md",
+    "?? docs/superpowers/plans/2026-10-23-remediation-acceptance.md",
+    "?? docs/superpowers/plans/2026-10-23-remediation-evidence.md",
+    "?? docs/superpowers/plans/2026-10-23-remediation-governance.md",
+    "?? docs/superpowers/plans/2026-10-23-remediation-platform.md",
+    "?? docs/superpowers/plans/2026-10-23-remediation-roadmap.md",
+    "?? docs/superpowers/specs/",
+    "?? docs/verification/remediation/",
+    "?? frontend/postcss.config.js",
+    "?? frontend/public/favicon.svg",
+    "?? frontend/src/components/ContractScanner.jsx",
+    "?? frontend/src/components/ForensicExplorer.jsx",
+    "?? frontend/src/components/ForensicReport.jsx",
+    "?? frontend/src/components/InsiderMonitor.jsx",
+    "?? frontend/src/components/LiveExecutionDrawer.jsx",
+    "?? frontend/src/components/RiskScorePanel.jsx",
+    "?? frontend/src/components/SystemDiagnosticModal.jsx",
+    "?? frontend/src/components/TransactionInspectorModal.jsx",
+    "?? frontend/src/utils/merkle.js",
+    "?? frontend/src/utils/simulation.js",
+    "?? frontend/tailwind.config.js",
+    "?? ops/health/__pycache__/",
+    "?? package-lock.json",
+    "?? research/__pycache__/",
+    "?? research/tests/__pycache__/",
+    "?? scripts/__pycache__/",
+    "?? scripts/simulate-fraud-case.js"
+  ],
+  "git_diff_stat": [
+    "README.md                                 | 403 ++++++++++++++++--------------",
+    "ai-engine/app/services/llm_provider.py    |   4 +",
+    "ai-engine/app/services/scanner_service.py |   4 +",
+    "deployments/deployment-manifest.json      |   4 +-",
+    "frontend/index.html                       |  12 +-",
+    "frontend/src/index.css                    |  87 ++++++-",
+    "frontend/vite.config.js                   |   5 +-",
+    "hardhat.config.js                         |   3 +-",
+    "8 files changed, 322 insertions(+), 200 deletions(-)"
+  ],
+  "user_uncommitted_modified_tracked": [
+    "README.md",
+    "ai-engine/app/services/llm_provider.py",
+    "ai-engine/app/services/scanner_service.py",
+    "deployments/deployment-manifest.json",
+    "frontend/index.html",
+    "frontend/src/index.css",
+    "frontend/vite.config.js",
+    "hardhat.config.js"
+  ],
+  "fingerprint_tracked_files": [
+    {
+      "path": "ai-engine/app/services/llm_provider.py",
+      "bytes": 5871,
+      "sha256": "684c233841060d527dc06f78bcad3077307f35414bdcf568a667c15c1683d2bd",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/services/scanner_service.py",
+      "bytes": 6480,
+      "sha256": "594a1c8a00276b81e1d75a6a3a92cbbb088cd8ff290233753c71cc7a0bcfff5c",
+      "hashed": true
+    },
+    {
+      "path": "contracts/access/MultiSigApproval.sol",
+      "bytes": 20356,
+      "sha256": "ed3b478a26c12030b65840d8c1f51314f4f2c97a05842471b6de8fe7ab9ad2ba",
+      "hashed": true
+    },
+    {
+      "path": "contracts/access/RoleManager.sol",
+      "bytes": 10220,
+      "sha256": "762050dffb54cb670719febaef60bead7623c0549276123c06a54745d821dabe",
+      "hashed": true
+    },
+    {
+      "path": "contracts/AuditEngine.sol",
+      "bytes": 35536,
+      "sha256": "72d2c604570f5baa680c23be507eaa962e955c9a4d4d5d94210abc91752e1a60",
+      "hashed": true
+    },
+    {
+      "path": "contracts/ComplianceRules.sol",
+      "bytes": 7225,
+      "sha256": "27f75dfc3ec30f016ec626a570db4eb4446291d080c9813b18e45e1332968f2a",
+      "hashed": true
+    },
+    {
+      "path": "contracts/forensics/ForensicTrail.sol",
+      "bytes": 13528,
+      "sha256": "36a49766ddd17a560b78a2c68ef3641b73ea852464244fb91ad32486fe8bc5c5",
+      "hashed": true
+    },
+    {
+      "path": "contracts/forensics/InsiderActivityLog.sol",
+      "bytes": 12430,
+      "sha256": "234a12df8905ccb78dc0cbeb7984c38018ccf2b167fd9f074bd8f2eb5a2187c5",
+      "hashed": true
+    },
+    {
+      "path": "contracts/interfaces/IAuditEngine.sol",
+      "bytes": 1096,
+      "sha256": "39d36a591c9ea09041667cd52443fc262338c97bad23ecdad7de74131b4c2890",
+      "hashed": true
+    },
+    {
+      "path": "contracts/interfaces/IForensicTrail.sol",
+      "bytes": 1275,
+      "sha256": "bfe2919d41838b44a61d65e52212e6a0c0047aa5f0da843d5daf679b44fe9a14",
+      "hashed": true
+    },
+    {
+      "path": "contracts/interfaces/IRoleManager.sol",
+      "bytes": 1191,
+      "sha256": "ba70e4ce02044d8bbf60c44f1744a65d9d8b711c6b2bc1370bd606c971798458",
+      "hashed": true
+    },
+    {
+      "path": "contracts/libraries/EvidenceHashing.sol",
+      "bytes": 1743,
+      "sha256": "ed9172fac8e8dfdb3addd73a10e3556c3424581608311c99dc357c9f864ed1e7",
+      "hashed": true
+    },
+    {
+      "path": "contracts/test/EvidenceHashingWrapper.sol",
+      "bytes": 515,
+      "sha256": "3864325f6d209a821f71b309da98997723be35653e491c95f0bcf12a25090a2a",
+      "hashed": true
+    },
+    {
+      "path": "deployments/deployment-manifest.json",
+      "bytes": 2049,
+      "sha256": "2b02279b901e77917836b24e224d5568e5f6851d41f843385205fec76e76ba52",
+      "hashed": true
+    },
+    {
+      "path": "frontend/index.html",
+      "bytes": 1219,
+      "sha256": "e11bff307716dd3f1edac244b0326c915469b17b53b96f168904c175ad602cc3",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/index.css",
+      "bytes": 2392,
+      "sha256": "b8f2fe862c354527de496720d51a5cd67b0a6d4f79d02f43e254f2c81c49f3a5",
+      "hashed": true
+    },
+    {
+      "path": "frontend/vite.config.js",
+      "bytes": 476,
+      "sha256": "cedfbe6220bd0dfcc80b17e87ef97f91b20b630648a6aaad3b7935c2512f752d",
+      "hashed": true
+    },
+    {
+      "path": "hardhat.config.js",
+      "bytes": 890,
+      "sha256": "2abdaab519aa024974dae3bcbbedd2c227ae646a6dcc603f0abfe640d470dee1",
+      "hashed": true
+    },
+    {
+      "path": "package.json",
+      "bytes": 2460,
+      "sha256": "f98a3966f282532e67c12909496d9f8809a1903cde42b5d23c359f672355cfdb",
+      "hashed": true
+    },
+    {
+      "path": "README.md",
+      "bytes": 14818,
+      "sha256": "c4407d268c42be9a188912fccde4c85459e1d47a854259b03d21f06135372e8b",
+      "hashed": true
+    }
+  ],
+  "fingerprint_untracked_files": [
+    {
+      "path": "ai-engine/app/__init__.py",
+      "bytes": 38,
+      "sha256": "8e0f871553bce0f27de7ee55e01330815751d644d1cffc6eb47afbadb122bd0c",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/models/insider_analyzer.py",
+      "bytes": 7485,
+      "sha256": "42dfe6324f05ffdf0426d90d7f8aa99cda8de42f056597ed5c5db720f1d98c18",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/routes/__init__.py",
+      "bytes": 37,
+      "sha256": "be5ff9a6a93e383e787f48d926bc49933670bb1dd5fe325c5478d4dc67f4f24b",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/routes/contract_scanner.py",
+      "bytes": 1125,
+      "sha256": "a4bc03542ddf075bb3f472abdc121761d133f4c7e9ac49c545c746608f0d5e4c",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/routes/forensic_report.py",
+      "bytes": 3418,
+      "sha256": "de70ce3c88363e9a443b34d915da4425c9f895fab85362ea304ec181f894d8f8",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/routes/insider_detection.py",
+      "bytes": 3045,
+      "sha256": "d0c1bfda8a95f43543b04f8af719b335570daaeb1ca836498695b41a0ead175a",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/routes/risk_scoring.py",
+      "bytes": 4182,
+      "sha256": "044b9f4803609fd135c38b4b66be2fef341e6fd8262e3e939d081620c42e9386",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/tests/integration/test_security_findings_regression.py",
+      "bytes": 7428,
+      "sha256": "dcd20ef1fa4e3a73561b8dc91e3f872b454fd2315d16f18ae58422fe2cc3ef87",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/tests/test_api_endpoints.py",
+      "bytes": 4560,
+      "sha256": "562c03a6680aa0ac9e9a0733d56ac3020bb192999a81e6174049876fbe631f25",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/tests/test_contract_scanner.py",
+      "bytes": 1408,
+      "sha256": "918ae49473103897508e31ec668337f94a83b710d1ee529c7af9191e16d7e7a2",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/tests/test_forensic_report.py",
+      "bytes": 2707,
+      "sha256": "12c7f10e0fc0b4a35aae8ceda2603c341e68342d1dba9913fa6ede4839cfcdbf",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/tests/test_fraud_detector.py",
+      "bytes": 2627,
+      "sha256": "784a12bed373c97a3eb78722abd4667a8db25a9c642946ac9a502e31da32091e",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/tests/test_insider_analyzer.py",
+      "bytes": 3089,
+      "sha256": "3b3d4fd4d41c32884925ce40dbb1e7a21fd662c18e3b2d666833304fbb7ae389",
+      "hashed": true
+    },
+    {
+      "path": "cyber_audit_chain.db",
+      "bytes": 0,
+      "hashed": false,
+      "note": "binary or excluded content: name and size only"
+    },
+    {
+      "path": "deployments/localhost.json",
+      "bytes": 2049,
+      "sha256": "2b02279b901e77917836b24e224d5568e5f6851d41f843385205fec76e76ba52",
+      "hashed": true
+    },
+    {
+      "path": "docs/architecture.md",
+      "bytes": 8793,
+      "sha256": "e307e44d936ee2e1652d143eb1ba7fd4d2aa1d0223fdf107d5b4cb52e5e5666b",
+      "hashed": true
+    },
+    {
+      "path": "docs/defense-presentation.md",
+      "bytes": 12759,
+      "sha256": "a675943a4705496811ffdfe2900b472301f2a0c31133c089873d04387f5d748f",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-22-phase-1-trust-and-integration.md",
+      "bytes": 29822,
+      "sha256": "cf43821b5f1e11a1dc2ff10b7cc07facbc8dfad6fdb6911964117ef2afba33f1",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-22-phase-4-commercial-readiness.md",
+      "bytes": 14465,
+      "sha256": "9bbafb9b453c5d7a8708d141b82021f1737189d31083cc5fb840cd2839b6cbc1",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-22-three-track-roadmap.md",
+      "bytes": 17102,
+      "sha256": "a2aedcad461c203b8c44143782fd6cdedc40457def536beb8f6eb051351cd68b",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-23-remediation-acceptance.md",
+      "bytes": 19604,
+      "sha256": "7515085fec8d57efe49eeb2209b0767c8150e4bbc5c2c292ec256830bcc67606",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-23-remediation-evidence.md",
+      "bytes": 22069,
+      "sha256": "afce149e569007dfdcfae02bc880b872ba14c8cf41e5cf651c8f332966ccacc8",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-23-remediation-governance.md",
+      "bytes": 17140,
+      "sha256": "3ecff145fda442b728ac7d664e423b0db1721a43eadd93d21e87baa5251ef0b5",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-23-remediation-platform.md",
+      "bytes": 26180,
+      "sha256": "e5454de1541d31d91a2ed36a8eee8bb61e25369a5e9227deedbab0132a6567eb",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-23-remediation-roadmap.md",
+      "bytes": 16905,
+      "sha256": "052ca809d6d8219a278e0590e51d75c4c0e9f6b672560e3c60bf0595047b1525",
+      "hashed": true
+    },
+    {
+      "path": "frontend/postcss.config.js",
+      "bytes": 80,
+      "sha256": "190c877db466995bf1482f4a16abd06e04a89ede3119341e2a86ff96e1737b27",
+      "hashed": true
+    },
+    {
+      "path": "frontend/public/favicon.svg",
+      "bytes": 680,
+      "sha256": "cc911462a3d7b58ac1a9caa79889e8b95410357369430cbefd3021e29576a39b",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/ContractScanner.jsx",
+      "bytes": 16819,
+      "sha256": "bfd2e11015d14a42fdc9a0cd211f016c4332797f60fbbb3180b0c275139d4a26",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/ForensicExplorer.jsx",
+      "bytes": 30017,
+      "sha256": "10e1960499bab4f705989f2bc58e3406b1f9ded4964c4578498fb83e6e8c1ace",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/ForensicReport.jsx",
+      "bytes": 16001,
+      "sha256": "1512b97f1f183976ad2f2f6be3dfa73717b5c820bf911482d1b576cb6680df7c",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/InsiderMonitor.jsx",
+      "bytes": 31836,
+      "sha256": "cf25514f9f609f1d0633946640fa01a2817a1460f4154392a21c4429da25bd74",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/LiveExecutionDrawer.jsx",
+      "bytes": 3907,
+      "sha256": "c0dde001e44f9887614d27e96287eafc755378e09ffacca37c3d049e46086f59",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/RiskScorePanel.jsx",
+      "bytes": 19808,
+      "sha256": "3d63b7e7b480c6324d54b249aa2427157ea36a29441aca8fcada2022e120038a",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/SystemDiagnosticModal.jsx",
+      "bytes": 15693,
+      "sha256": "6f8c1b5e73e5c6efe2f8f7f2fcac3532eab91f97a671057453396fd8d6655958",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/components/TransactionInspectorModal.jsx",
+      "bytes": 11739,
+      "sha256": "6894387073be12962c57aeb2c6516f5af8caed67154170ddb47d71ed867fae43",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/utils/merkle.js",
+      "bytes": 3449,
+      "sha256": "4fb620dc35f4b21fc96339ce984fb48d1a28a47e1697197a970e05ff0b1aad9b",
+      "hashed": true
+    },
+    {
+      "path": "frontend/src/utils/simulation.js",
+      "bytes": 6277,
+      "sha256": "050b6142be14635290d6047422a6053646b9235d9063c9f64b0ddae469393fc4",
+      "hashed": true
+    },
+    {
+      "path": "frontend/tailwind.config.js",
+      "bytes": 1661,
+      "sha256": "85316769c0f3cf437af6a3effef3e935fadb083ef9a0cc410d209fd9044b126e",
+      "hashed": true
+    },
+    {
+      "path": "package-lock.json",
+      "bytes": 319046,
+      "sha256": "1e8678e921438a0a91aa638c7302372459396b57dea4dc886738cedeb9687284",
+      "hashed": true
+    },
+    {
+      "path": "scripts/simulate-fraud-case.js",
+      "bytes": 8352,
+      "sha256": "cb8c92945b8a583d5c1cc1f882f67f76f827c50efcf35140209c0dd99eda56aa",
+      "hashed": true
+    }
+  ],
+  "untracked_dir_contents": [
+    {
+      "path": "ai-engine/app/data/training_data.csv",
+      "bytes": 33508,
+      "sha256": "7b6b8fe5442216550bf426930053ba1bff6969dedc2715cb59608bc8e9650d66",
+      "hashed": true
+    },
+    {
+      "path": "ai-engine/app/models/pretrained/fraud_model.pkl",
+      "bytes": 29,
+      "hashed": false,
+      "note": "binary or excluded content: name and size only"
+    },
+    {
+      "path": "ai-engine/models/pretrained/fraud_model.joblib",
+      "bytes": 1747929,
+      "hashed": false,
+      "note": "binary or excluded content: name and size only"
+    },
+    {
+      "path": "ai-engine/models/pretrained/fraud_model.joblib.meta.json",
+      "bytes": 798,
+      "sha256": "f2a3dc0dec36ccc6b2a1e62246807f815373556f6d2d9315cc35e5daab216f05",
+      "hashed": true
+    },
+    {
+      "path": "docs/security/risk-register.md",
+      "bytes": 2912,
+      "sha256": "d605268de80512598b41f94e329d5d36645a779a4701cd567ac17308a0a8dfb1",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/specs/2026-10-22-three-track-development-design.md",
+      "bytes": 29401,
+      "sha256": "6faa020f4cd193b0f152a7d217beba88d81bfa515b59c508659a0c8f40ae86ad",
+      "hashed": true
+    },
+    {
+      "path": "docs/superpowers/specs/2026-10-23-verified-remediation-design.md",
+      "bytes": 31740,
+      "sha256": "8847c61459b2f5bf30e4428399c40e8ef89faf837f1014bbb0d642e4775841f3",
+      "hashed": true
+    }
+  ],
+  "excluded_caches": [
+    {
+      "path": "ai-engine/app/__pycache__",
+      "note": "python bytecode cache excluded (6 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/connectors/__pycache__",
+      "note": "python bytecode cache excluded (1 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/db/__pycache__",
+      "note": "python bytecode cache excluded (2 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/models/__pycache__",
+      "note": "python bytecode cache excluded (5 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/repositories/__pycache__",
+      "note": "python bytecode cache excluded (5 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/routes/__pycache__",
+      "note": "python bytecode cache excluded (10 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/routes/v2/__pycache__",
+      "note": "python bytecode cache excluded (10 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/schemas/__pycache__",
+      "note": "python bytecode cache excluded (9 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/security/__pycache__",
+      "note": "python bytecode cache excluded (3 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/services/__pycache__",
+      "note": "python bytecode cache excluded (17 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/app/workers/__pycache__",
+      "note": "python bytecode cache excluded (2 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/tests/__pycache__",
+      "note": "python bytecode cache excluded (20 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ai-engine/tests/integration/__pycache__",
+      "note": "python bytecode cache excluded (10 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "ops/health/__pycache__",
+      "note": "python bytecode cache excluded (1 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "research/__pycache__",
+      "note": "python bytecode cache excluded (1 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "research/tests/__pycache__",
+      "note": "python bytecode cache excluded (1 .pyc entries), name only, contents not hashed"
+    },
+    {
+      "path": "scripts/__pycache__",
+      "note": "python bytecode cache excluded (1 .pyc entries), name only, contents not hashed"
+    }
+  ],
+  "secret_scan": {
+    "method": "dir /s /b .env* excluding node_modules (returned no matches); git ls-files contains no .env entries",
+    "secret_named_files_found": [],
+    "note": "No .env, .key or .pem files found at repo root, ai-engine/, frontend/ or recursively outside node_modules. Nothing to record beyond this statement; no secret contents read."
+  },
+  "notes": [
+    "SHA-256 values are fingerprints of the working-tree files on 2026-10-23 (reviewed baseline), not of git blobs at HEAD.",
+    "cyber_audit_chain.db is 0 bytes; recorded by name and size only.",
+    "__pycache__ directories and node_modules are excluded from fingerprinting.",
+    "No secrets, evidence data, or database contents were copied into this inventory."
+  ]
+}

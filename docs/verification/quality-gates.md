@@ -2,6 +2,8 @@
 
 This document establishes the official quality gates, automated verification commands, and acceptance criteria for the Iraq AML/CFT Cyber-Forensic Audit Chain.
 
+> **[2026-10-23] superseded_pending_revalidation** — Historical gate results referenced by this document (143 passing Hardhat tests, 29 selected passing Python tests, 243 lint warnings) are recorded as **historical** in [remediation/baseline-2026-10-23.md](remediation/baseline-2026-10-23.md) and are **not** evidence of current readiness. The verified remediation register [remediation/findings.csv](remediation/findings.csv) lists F01–F14, all currently **OPEN**. No gate may be cited as passed or closed until its revalidation produces red/green test evidence from a final build with a build id and environment recorded per the remediation design (§3). Thresholds in the matrix below remain the revalidation targets; they are not claims of achievement.
+
 ---
 
 ## 1. Quality Gates Matrix
