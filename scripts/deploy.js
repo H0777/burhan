@@ -88,7 +88,10 @@ async function main() {
   await configTx.wait();
   console.log("   -> Cross-contract wiring configured successfully.");
 
-  // 8. Enroll initial 4+ participants required by Specification §5
+  // 8. Enroll initial 4 institutional participants required by Specification §5
+  //    (R02: fixed institutional ids, not derived from names or addresses;
+  //    the person↔participant_id mapping is held off-chain in membership
+  //    records. All four are ELIGIBLE voters: SUPER_ADMIN/AUDITOR only.)
   console.log("8. Bootstrapping initial 4 participants...");
   const participantAccounts = [
     signers[1] ? signers[1].address : "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
@@ -96,21 +99,29 @@ async function main() {
     signers[3] ? signers[3].address : "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
     signers[4] ? signers[4].address : "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
   ];
-  const participantRoles = [2, 2, 3, 4]; // AUDITOR, AUDITOR, OPERATOR, REGULATOR
+  // Deterministic institutional roster fixture ids (replace per institution in R04)
+  const participantIds = [
+    "0xF75C6EBDDEFB3CCFCAF608A6E4EC673954D92C03384453B0558BAAD01B8F9312",
+    "0xB8E57F1639EE0D87D1D6E4DEA50AD06C36252162AEDFA000809B86EB52B816B5",
+    "0xDD00ACD20D9AA7C09F37A8B907F5DA520B77C0F437FFA54788911409A319C478",
+    "0x657ABC488CDBEB7F617116B73EC1508431FF09C7BFABED6F1C83AB4967113EE7",
+  ];
+  const participantRoles = [1, 2, 2, 2]; // SUPER_ADMIN, AUDITOR, AUDITOR, AUDITOR
   const participantReasons = [
+    "SYSTEM: Chief Governance & Compliance Admin",
     "SYSTEM: Primary Forensic Compliance Auditor",
     "SYSTEM: Secondary Forensic Compliance Auditor",
-    "SYSTEM: Core Banking Operations Lead",
-    "SYSTEM: CBI Central Bank Oversight Inspector",
+    "SYSTEM: Tertiary Forensic Compliance Auditor",
   ];
 
   const bootstrapTx = await multiSig.bootstrapParticipants(
+    participantIds,
     participantAccounts,
     participantRoles,
     participantReasons
   );
   await bootstrapTx.wait();
-  console.log("   -> 4 participants enrolled into RoleManager.");
+  console.log("   -> 4 institutional participants enrolled into RoleManager.");
 
   // 9. Finalize Bootstrap and revoke deployer bootstrap authority permanently
   console.log("9. Finalizing bootstrap and revoking bootstrap privileges...");
@@ -147,12 +158,15 @@ async function main() {
     code_hashes: codeHashes,
     participants: [
       {
+        // R02: the deployer's temporary role is dropped at finalizeBootstrap;
+        // it holds no institutional identity unless explicitly enrolled.
         account: deployer.address,
-        role: 1,
-        reason: "SYSTEM: Genesis Deployer Super Admin",
+        role: 0,
+        reason: "SYSTEM: Genesis Deployer (temporary bootstrap authority, revoked at finalization)",
       },
       ...participantAccounts.map((addr, idx) => ({
         account: addr,
+        participant_id: participantIds[idx],
         role: participantRoles[idx],
         reason: participantReasons[idx],
       })),

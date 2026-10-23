@@ -82,6 +82,10 @@ contract MultiSigApproval {
     /// @notice Track participant IDs to prevent double voting across multiple wallets
     mapping(uint256 => mapping(bytes32 => bool)) private _hasVotedParticipant;
 
+    /// @notice Institutional identity of each proposal's proposer (R02: one person
+    ///         holding two wallets of the same identity cannot propose and approve)
+    mapping(uint256 => bytes32) private _proposerParticipantIds;
+
     /// @notice Track approvers per proposal
     mapping(uint256 => address[]) private _proposalApprovers;
 
@@ -238,37 +242,58 @@ contract MultiSigApproval {
     }
 
     /**
-     * @notice Enroll initial 4+ participants during bootstrap phase
+     * @notice Enroll initial 4+ institutional participants during bootstrap phase
+     * @dev The only bulk-entry point: each entry mints a fixed institutional
+     *      identity bound to exactly one active wallet in RoleManager. The whole
+     *      enrollment reverts atomically if any entry is invalid (zero id,
+     *      duplicate id, duplicate/retired wallet). Ids are fixed off-chain
+     *      roster values, never derived from wallet addresses or person names.
      */
     function bootstrapParticipants(
-        address[] calldata _participants,
+        bytes32[] calldata _participantIds,
+        address[] calldata _wallets,
         uint8[] calldata _roles,
         string[] calldata _reasons
     ) external onlyBootstrapAuthority {
         require(address(roleManager) != address(0), "MultiSig: contracts not configured");
         require(
-            _participants.length == _roles.length && _participants.length == _reasons.length,
+            _participantIds.length == _wallets.length &&
+                _wallets.length == _roles.length &&
+                _wallets.length == _reasons.length,
             "MultiSig: length mismatch"
         );
-        require(_participants.length >= 4, "MultiSig: need at least 4 participants");
+        require(_wallets.length >= 4, "MultiSig: need at least 4 participants");
 
-        for (uint256 i = 0; i < _participants.length; i++) {
-            require(_participants[i] != address(0), "MultiSig: zero address participant");
-            for (uint256 j = i + 1; j < _participants.length; j++) {
-                require(_participants[i] != _participants[j], "MultiSig: duplicate participant");
+        for (uint256 i = 0; i < _wallets.length; i++) {
+            require(_wallets[i] != address(0), "MultiSig: zero address participant");
+            for (uint256 j = i + 1; j < _wallets.length; j++) {
+                require(_wallets[i] != _wallets[j], "MultiSig: duplicate participant");
             }
-            roleManager.assignRole(_participants[i], RoleManager.Role(_roles[i]), _reasons[i]);
+            roleManager.enrollParticipant(
+                _participantIds[i],
+                _wallets[i],
+                RoleManager.Role(_roles[i]),
+                _reasons[i]
+            );
         }
 
-        emit ParticipantsBootstrapped(_participants.length);
+        emit ParticipantsBootstrapped(_wallets.length);
     }
 
     /**
      * @notice Finalize bootstrap phase and revoke bootstrapAuthority permanently
+     * @dev Quorum counts distinct ENROLLED voting identities (SUPER_ADMIN/AUDITOR
+     *      only; OPERATOR/REGULATOR and the un-enrolled deployer never count).
+     *      Integration completeness and allowlists are verified BEFORE the
+     *      authority is erased. The deployer's temporary role is dropped unless
+     *      the deployer wallet was explicitly enrolled in the roster.
      */
     function finalizeBootstrap() external onlyBootstrapAuthority {
         require(address(roleManager) != address(0), "MultiSig: contracts not configured");
-        require(roleManager.countActiveParticipants() >= 4, "MultiSig: need at least 4 participants");
+        require(
+            roleManager.countEligibleParticipants() >= 4,
+            "MultiSig: need at least 4 eligible participants"
+        );
 
         require(AuditEngine(auditEngine).isIntegrated(), "MultiSig: audit engine not integrated");
         require(address(AuditEngine(auditEngine).multiSig()) == address(this), "MultiSig: audit engine reference mismatch");
@@ -277,6 +302,14 @@ contract MultiSigApproval {
 
         isBootstrapFinalized = true;
         bootstrapAuthority = address(0);
+
+        // Drop the deployer's temporary bootstrap role unless its wallet is an
+        // explicitly enrolled roster participant (identity => explicit trust).
+        address deployerWallet = roleManager.deployer();
+        (bytes32 deployerId, , , ) = roleManager.getParticipant(deployerWallet);
+        if (deployerId == bytes32(0) && roleManager.getRole(deployerWallet) != RoleManager.Role.NONE) {
+            roleManager.revokeRole(deployerWallet, "Bootstrap finalized: deployer temporary role dropped");
+        }
 
         emit BootstrapFinalized(block.timestamp);
     }
@@ -301,8 +334,15 @@ contract MultiSigApproval {
     ) external onlyAuthorized returns (uint256 proposalId) {
         require(_target != address(0) && _target.code.length > 0, "MultiSig: target must be an active contract");
 
+        // R02: bind the proposal to the proposer's institutional identity, not
+        // just the proposing wallet — a rotated second wallet of the same person
+        // is still the proposer and can never approve their own proposal.
+        (bytes32 proposerId, , , ) = roleManager.getParticipant(msg.sender);
+        require(proposerId != bytes32(0), "MultiSig: proposer identity not enrolled");
+
         _proposalCounter++;
         proposalId = _proposalCounter;
+        _proposerParticipantIds[proposalId] = proposerId;
 
         uint256 expiresAt = block.timestamp + proposalTTL;
         bytes32 actionHash = keccak256(
@@ -357,7 +397,9 @@ contract MultiSigApproval {
         require(!_hasVoted[_proposalId][msg.sender], "MultiSig: caller has already voted");
 
         (bytes32 participantId, uint256 gen, , bool active) = roleManager.getParticipant(msg.sender);
+        require(participantId != bytes32(0), "MultiSig: caller identity not enrolled");
         require(active, "MultiSig: participant inactive");
+        require(participantId != _proposerParticipantIds[_proposalId], "MultiSig: proposer cannot approve own proposal");
         require(!_hasVotedParticipant[_proposalId][participantId], "MultiSig: participant has already voted");
 
         // Conflict of interest check on OVERRIDE_WARNING

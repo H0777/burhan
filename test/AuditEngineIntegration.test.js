@@ -44,9 +44,19 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
     // Authorize auditEngine as recorder
     await insiderLog.connect(admin).setRecorder(await auditEngine.getAddress(), true);
 
-    // Setup roles
-    await roleManager.connect(admin).assignRole(auditor.address, Role.AUDITOR, "Appointed Auditor");
-    await roleManager.connect(admin).assignRole(operator.address, Role.OPERATOR, "Appointed Operator");
+    // Setup roles (R02: identity comes only from enrollment with fixed institutional ids)
+    await roleManager.connect(admin).enrollParticipant(
+      "0xB8E57F1639EE0D87D1D6E4DEA50AD06C36252162AEDFA000809B86EB52B816B5",
+      auditor.address,
+      Role.AUDITOR,
+      "Appointed Auditor"
+    );
+    await roleManager.connect(admin).enrollParticipant(
+      "0xDD00ACD20D9AA7C09F37A8B907F5DA520B77C0F437FFA54788911409A319C478",
+      operator.address,
+      Role.OPERATOR,
+      "Appointed Operator"
+    );
   });
 
   describe("Contract Integration", function () {

@@ -94,10 +94,11 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
         await forensicTrail.getAddress()
       );
 
-      // Attempting to finalize without enrolling 4 participants must revert
+      // Attempting to finalize without enrolling 4 ELIGIBLE voting identities
+      // (SUPER_ADMIN/AUDITOR) must revert
       await expect(
         multiSig.connect(bootstrapAuthority).finalizeBootstrap()
-      ).to.be.revertedWith("MultiSig: need at least 4 participants");
+      ).to.be.revertedWith("MultiSig: need at least 4 eligible participants");
     });
   });
 
@@ -111,11 +112,19 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
         await forensicTrail.getAddress()
       );
 
-      // 2. Enroll 4 distinct participants
+      // 2. Enroll 5 distinct institutional identities (fixed roster ids, R02):
+      //    four ELIGIBLE voters (SUPER_ADMIN/AUDITOR) + one OPERATOR.
       await multiSig.connect(bootstrapAuthority).bootstrapParticipants(
-        [admin.address, auditor1.address, auditor2.address, operator.address],
-        [Role.SUPER_ADMIN, Role.AUDITOR, Role.AUDITOR, Role.OPERATOR],
-        ["Init Admin", "Init Auditor 1", "Init Auditor 2", "Init Operator"]
+        [
+          "0xF75C6EBDDEFB3CCFCAF608A6E4EC673954D92C03384453B0558BAAD01B8F9312",
+          "0xB8E57F1639EE0D87D1D6E4DEA50AD06C36252162AEDFA000809B86EB52B816B5",
+          "0xDD00ACD20D9AA7C09F37A8B907F5DA520B77C0F437FFA54788911409A319C478",
+          "0x9A1F04C6E2B3D75A8C41F60E92B7AD13C5E08D6427FA91B35C0D4E7A2F8B63C1",
+          "0x657ABC488CDBEB7F617116B73EC1508431FF09C7BFABED6F1C83AB4967113EE7",
+        ],
+        [admin.address, auditor1.address, auditor2.address, operator.address, regulator.address],
+        [Role.SUPER_ADMIN, Role.AUDITOR, Role.AUDITOR, Role.OPERATOR, Role.AUDITOR],
+        ["Init Admin", "Init Auditor 1", "Init Auditor 2", "Init Operator", "Init Auditor 3"]
       );
 
       // 3. Finalize bootstrap
@@ -164,9 +173,16 @@ describe("Write Authorization & Phased Bootstrap (T02)", function () {
       );
 
       await multiSig.connect(bootstrapAuthority).bootstrapParticipants(
-        [admin.address, auditor1.address, auditor2.address, operator.address],
-        [Role.SUPER_ADMIN, Role.AUDITOR, Role.AUDITOR, Role.OPERATOR],
-        ["Init Admin", "Init Auditor 1", "Init Auditor 2", "Init Operator"]
+        [
+          "0xF75C6EBDDEFB3CCFCAF608A6E4EC673954D92C03384453B0558BAAD01B8F9312",
+          "0xB8E57F1639EE0D87D1D6E4DEA50AD06C36252162AEDFA000809B86EB52B816B5",
+          "0xDD00ACD20D9AA7C09F37A8B907F5DA520B77C0F437FFA54788911409A319C478",
+          "0x9A1F04C6E2B3D75A8C41F60E92B7AD13C5E08D6427FA91B35C0D4E7A2F8B63C1",
+          "0x657ABC488CDBEB7F617116B73EC1508431FF09C7BFABED6F1C83AB4967113EE7",
+        ],
+        [admin.address, auditor1.address, auditor2.address, operator.address, regulator.address],
+        [Role.SUPER_ADMIN, Role.AUDITOR, Role.AUDITOR, Role.OPERATOR, Role.AUDITOR],
+        ["Init Admin", "Init Auditor 1", "Init Auditor 2", "Init Operator", "Init Auditor 3"]
       );
 
       await multiSig.connect(bootstrapAuthority).finalizeBootstrap();

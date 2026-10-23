@@ -54,9 +54,15 @@ describe("No Test Backdoor in Production RoleManager (R01/F01)", function () {
       const roleManagerAddress = await roleManager.getAddress();
 
       // Enroll the auditor through the real path so it holds a live generation.
+      // (R02: identity comes only from enrollment; assignRole requires it.)
       await roleManager
         .connect(governance)
-        .assignRole(auditor.address, Role.AUDITOR, "R01 fixture: auditor enrollment");
+        .enrollParticipant(
+          "0xB8E57F1639EE0D87D1D6E4DEA50AD06C36252162AEDFA000809B86EB52B816B5",
+          auditor.address,
+          Role.AUDITOR,
+          "R01 fixture: auditor enrollment"
+        );
 
       const generationBefore = await roleManager.getGeneration(auditor.address);
       expect(generationBefore).to.equal(1n);
