@@ -523,17 +523,6 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
         }
     }
 
-    /**
-     * @notice R03: configure business hours of the InsiderActivityLog
-     *      (governance only; SYSTEM_CONFIG closed action, 86,400s delay)
-     * @dev UTC context — the authoritative window lives in InsiderActivityLog;
-     *      this wrapper keeps the SYSTEM_CONFIG target on the AuditEngine.
-     */
-    function setBusinessHours(uint8 _start, uint8 _end) external onlyGovernance {
-        require(isIntegrated && address(insiderLog) != address(0), "AuditEngine: InsiderLog not integrated");
-        insiderLog.setBusinessHours(_start, _end);
-    }
-
     // ============================================================
     // FEATURE 5: DUAL-CONTROL EMERGENCY CIRCUIT BREAKER
     // ============================================================

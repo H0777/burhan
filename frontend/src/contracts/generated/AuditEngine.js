@@ -1127,24 +1127,6 @@ export default [
   {
     "inputs": [
       {
-        "internalType": "uint8",
-        "name": "_start",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint8",
-        "name": "_end",
-        "type": "uint8"
-      }
-    ],
-    "name": "setBusinessHours",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "_receiver",
         "type": "address"

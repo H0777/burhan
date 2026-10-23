@@ -151,7 +151,7 @@ async function main() {
     institution_id: institutionId,
     chain_id: chainId,
     deployed_at: new Date().toISOString(),
-    contract_version: "2.0.0",
+    contract_version: "2.1.0",
     network: hre.network.name,
     deployer: deployer.address,
     bootstrap_finalized: true,
@@ -198,7 +198,7 @@ async function main() {
     rpc_url: process.env.VITE_RPC_URL || "http://127.0.0.1:8545",
     ai_engine_url: process.env.VITE_AI_ENGINE_URL || "/api",
     app_mode: process.env.APP_MODE || "demo",
-    contract_version: "2.0.0",
+    contract_version: "2.1.0",
     contracts: contractAddresses,
   };
 

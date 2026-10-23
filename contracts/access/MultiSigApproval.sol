@@ -821,7 +821,7 @@ contract MultiSigApproval {
     /**
      * @dev SYSTEM_CONFIG -> ForensicTrail.setEvidenceWriter(address,bool),
      *      InsiderActivityLog.setRecorder(address,bool) (grant +86,400s,
-     *      revocation delay 0) or AuditEngine.setBusinessHours(uint8,uint8)
+     *      revocation delay 0) or InsiderActivityLog.setBusinessHours(uint8,uint8)
      *      (+86,400s).
      */
     function _validateSystemConfigAction(
@@ -851,7 +851,7 @@ contract MultiSigApproval {
             return authorized ? block.timestamp + TIMELOCK_DELAY : block.timestamp;
         }
         if (_selector == bytes4(keccak256("setBusinessHours(uint8,uint8)"))) {
-            require(_target == auditEngine, "MultiSig: forbidden target for proposal type");
+            require(_target == insiderLog, "MultiSig: forbidden target for proposal type");
             (uint8 start, uint8 end) = abi.decode(_data[4:], (uint8, uint8));
             require(
                 _exactEncoding(abi.encodeWithSelector(_selector, start, end), _dataMem),

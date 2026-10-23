@@ -131,10 +131,10 @@ describe("MultiSigApproval", function () {
 
   describe("Approval Flow & Execution", function () {
     beforeEach(async function () {
-      // R03: business hours changed through the SYSTEM_CONFIG closed action
-      // (AuditEngine.setBusinessHours wrapper, 86,400s delay).
-      const callData = auditEngine.interface.encodeFunctionData("setBusinessHours", [9, 18]);
-      const target = await auditEngine.getAddress();
+      // R03 fix round 1: business hours changed through the SYSTEM_CONFIG
+      // closed action targeting InsiderActivityLog directly (86,400s delay).
+      const callData = insiderLog.interface.encodeFunctionData("setBusinessHours", [9, 18]);
+      const target = await insiderLog.getAddress();
       await multiSig.connect(deployer).createProposal(
         ProposalType.SYSTEM_CONFIG,
         target,

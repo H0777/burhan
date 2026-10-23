@@ -49,7 +49,4 @@ interface IAuditEngine {
 
     /// @notice R03: resume operations, bound to the current pauseEpoch
     function executeEmergencyUnpause(uint256 _expectedEpoch) external;
-
-    /// @notice R03: configure InsiderActivityLog business hours (governance only)
-    function setBusinessHours(uint8 _start, uint8 _end) external;
 }

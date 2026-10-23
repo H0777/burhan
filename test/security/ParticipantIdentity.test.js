@@ -134,10 +134,10 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
     await system.multiSig.connect(executor).executeProposal(proposalId);
   }
 
-  // R03: business hours moved to the SYSTEM_CONFIG closed action on the
-  // AuditEngine wrapper (86,400s delay before execution).
+  // R03 fix round 1: business hours belong to the SYSTEM_CONFIG closed action
+  // targeting InsiderActivityLog directly (86,400s delay before execution).
   function policyProposalCalldata(system) {
-    return system.auditEngine.interface.encodeFunctionData("setBusinessHours", [9, 18]);
+    return system.insiderLog.interface.encodeFunctionData("setBusinessHours", [9, 18]);
   }
 
   // ==================================================================
@@ -448,7 +448,7 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
         .connect(p2)
         .createProposal(
           ProposalType.SYSTEM_CONFIG,
-          await system.auditEngine.getAddress(),
+          await system.insiderLog.getAddress(),
           policyProposalCalldata(system),
           ethers.id("Adjust business hours")
         );
@@ -503,7 +503,7 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
         .connect(p2)
         .createProposal(
           ProposalType.SYSTEM_CONFIG,
-          await system.auditEngine.getAddress(),
+          await system.insiderLog.getAddress(),
           policyProposalCalldata(system),
           ethers.id("Quorum without the absent voter")
         );
@@ -594,7 +594,7 @@ describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", funct
         .connect(p2)
         .createProposal(
           ProposalType.SYSTEM_CONFIG,
-          await system.auditEngine.getAddress(),
+          await system.insiderLog.getAddress(),
           policyProposalCalldata(system),
           ethers.id("Alias vote test proposal")
         );

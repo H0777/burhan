@@ -283,7 +283,7 @@ describe("Timelock & Closed Action Binding (R03)", function () {
     });
 
     it("rejects SYSTEM_CONFIG calldata with trailing garbage (decode + re-encode check)", async function () {
-      const clean = auditEngine.interface.encodeFunctionData("setBusinessHours", [9, 18]);
+      const clean = insiderLog.interface.encodeFunctionData("setBusinessHours", [9, 18]);
       const garbage = clean + "deadbeef"; // extra bytes after a valid encoding
 
       await expect(
@@ -291,7 +291,7 @@ describe("Timelock & Closed Action Binding (R03)", function () {
           .connect(auditor1)
           .createProposal(
             ProposalType.SYSTEM_CONFIG,
-            await auditEngine.getAddress(),
+            await insiderLog.getAddress(),
             garbage,
             "trailing garbage"
           )
