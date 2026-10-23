@@ -90,7 +90,7 @@
         "title": "BatchScoreRequest",
         "type": "object"
       },
-      "Body_upload_case_evidence_for_cases_path_api_v2_cases__case_id__evidence_post": {
+      "Body_upload_case_evidence_api_v2_cases__case_id__evidence_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -101,7 +101,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_case_evidence_for_cases_path_api_v2_cases__case_id__evidence_post",
+        "title": "Body_upload_case_evidence_api_v2_cases__case_id__evidence_post",
         "type": "object"
       },
       "Body_upload_case_evidence_for_evidence_path_api_v2_evidence_cases__case_id__post": {
@@ -116,6 +116,288 @@
           "file"
         ],
         "title": "Body_upload_case_evidence_for_evidence_path_api_v2_evidence_cases__case_id__post",
+        "type": "object"
+      },
+      "CaseCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "assigned_to_sub": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Initial assigned investigator/auditor sub",
+            "title": "Assigned To Sub"
+          },
+          "case_number": {
+            "description": "Unique human-readable institutional case identifier",
+            "title": "Case Number",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "description": "Detailed investigative context",
+            "title": "Description"
+          },
+          "severity": {
+            "default": "MEDIUM",
+            "description": "Case severity: LOW, MEDIUM, HIGH, CRITICAL",
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "description": "Descriptive case title",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_number",
+          "title"
+        ],
+        "title": "CaseCreateRequest",
+        "type": "object"
+      },
+      "CaseDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "case": {
+            "$ref": "#/components/schemas/CaseResponse"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/CaseEventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "evidence_count": {
+            "title": "Evidence Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "case",
+          "events",
+          "evidence_count"
+        ],
+        "title": "CaseDetailResponse",
+        "type": "object"
+      },
+      "CaseEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_sub": {
+            "title": "Actor Sub",
+            "type": "string"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "institution_id": {
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "case_id",
+          "institution_id",
+          "event_type",
+          "actor_sub",
+          "payload",
+          "created_at"
+        ],
+        "title": "CaseEventResponse",
+        "type": "object"
+      },
+      "CaseListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "CaseListResponse",
+        "type": "object"
+      },
+      "CaseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "assigned_to_sub": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To Sub"
+          },
+          "case_number": {
+            "title": "Case Number",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "institution_id": {
+            "title": "Institution Id",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "case_number",
+          "institution_id",
+          "title",
+          "severity",
+          "status",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CaseResponse",
+        "type": "object"
+      },
+      "CaseTransitionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "description": "Transition action: start_review, request_approval, approve_resolution, reject_resolution, escalate, return_to_review, close, reopen, assign",
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_version": {
+            "description": "Current case version for optimistic locking",
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "new_assignee_sub": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target assignee sub when reassigning or returning to review",
+            "title": "New Assignee Sub"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "",
+            "description": "Required justification for resolutions, rejections, escalations",
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "action",
+          "expected_version"
+        ],
+        "title": "CaseTransitionRequest",
         "type": "object"
       },
       "ChainVerificationRequest": {
@@ -1097,9 +1379,217 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v2/cases": {
+      "get": {
+        "operationId": "list_cases_api_v2_cases_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List institutional cases with cursor pagination",
+        "tags": [
+          "Cases V2"
+        ]
+      },
+      "post": {
+        "operationId": "create_case_api_v2_cases_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create institutional case",
+        "tags": [
+          "Cases V2"
+        ]
+      }
+    },
+    "/api/v2/cases/{case_id}": {
+      "get": {
+        "operationId": "get_case_detail_api_v2_cases__case_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get case details and event history",
+        "tags": [
+          "Cases V2"
+        ]
+      }
+    },
     "/api/v2/cases/{case_id}/evidence": {
       "post": {
-        "operationId": "upload_case_evidence_for_cases_path_api_v2_cases__case_id__evidence_post",
+        "operationId": "upload_case_evidence_api_v2_cases__case_id__evidence_post",
         "parameters": [
           {
             "in": "path",
@@ -1147,7 +1637,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_case_evidence_for_cases_path_api_v2_cases__case_id__evidence_post"
+                "$ref": "#/components/schemas/Body_upload_case_evidence_api_v2_cases__case_id__evidence_post"
               }
             }
           },
@@ -1173,7 +1663,91 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Submit evidence for case",
+        "summary": "Upload non-fungible evidence for case",
+        "tags": [
+          "Cases V2"
+        ]
+      }
+    },
+    "/api/v2/cases/{case_id}/transition": {
+      "post": {
+        "operationId": "transition_case_api_v2_cases__case_id__transition_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseTransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Execute state transition on case with Four-Eyes governance",
         "tags": [
           "Cases V2"
         ]

@@ -83,11 +83,11 @@
 
 **Interfaces:** `transition_case(identity,case_id,action,expected_version,reason,idempotency_key)->CaseVersion`؛ GET/POST `/api/v2/cases` وGET `/cases/{id}` وPOST `/cases/{id}/transition`؛ جدول state/action/role في التصميم §7 ملزم، بما فيه approve_resolution/reject_resolution/return_to_review. pagination cursor مع ترتيب ثابت `(created_at,id)` وlimit<=100.
 
-- [ ] اكتب table-driven tests لكل انتقال مسموح/مرفوض، REGULATOR write، self-approval، قرارين متزامنين، إصدار قديم409، retry نفس المفتاح يعيد النتيجة نفسها، وتجاوز تحذير EVM لا يغلق القضية تلقائياً.
-- [ ] شغّل من ai-engine `python -m pytest -q tests/integration/test_case_workflow.py` قبل implementation؛ استخدم DB حقيقية للتحقق من السباق.
-- [ ] نفذ version check وappend-only case_events وقيد SoD، وخيارات تعيين/تصعيد ومراجعة واعتماد بمرجع معاملة وproof. الحقل history غير قابل للتعديل من API.
-- [ ] اختبر UI عربية/إنجليزية للحالات الفارغة/الخطأ/الصلاحيات/التزامن، ثم E2E موظف يسلم لمراجع مستقل ويصدر قراراً مع سببه.
-- [ ] حدّث OpenAPI/عميل مولد وUAT flow ثم review وcommit.
+- [x] اكتب table-driven tests لكل انتقال مسموح/مرفوض، REGULATOR write، self-approval، قرارين متزامنين، إصدار قديم409، retry نفس المفتاح يعيد النتيجة نفسها، وتجاوز تحذير EVM لا يغلق القضية تلقائياً.
+- [x] شغّل من ai-engine `python -m pytest -q tests/integration/test_case_workflow.py` قبل implementation؛ استخدم DB حقيقية للتحقق من السباق.
+- [x] نفذ version check وappend-only case_events وقيد SoD، وخيارات تعيين/تصعيد ومراجعة واعتماد بمرجع معاملة وproof. الحقل history غير قابل للتعديل من API.
+- [x] اختبر UI عربية/إنجليزية للحالات الفارغة/الخطأ/الصلاحيات/التزامن، ثم E2E موظف يسلم لمراجع مستقل ويصدر قراراً مع سببه.
+- [x] حدّث OpenAPI/عميل مولد وUAT flow ثم review وcommit.
 
 **القبول:** قضية كاملة قابلة لإعادة بناء تاريخها؛ لا اعتماد ذاتي ولا حالة ضائعة بسبب آخر طلب وصل.
 

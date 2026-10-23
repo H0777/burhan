@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 from app.routes import risk_scoring, insider_detection, contract_scanner, forensic_report
 from app.routes.v2 import evidence as evidence_v2
+from app.routes.v2 import cases as cases_v2
 from app.routes.v2 import policies as policies_v2
 from app.routes.v2 import health as health_v2
 from app.routes.v2 import identity as identity_v2
@@ -54,7 +55,7 @@ app.include_router(insider_detection.router, prefix="/api/v1/insider", tags=["In
 app.include_router(contract_scanner.router, prefix="/api/v1/contract", tags=["Contract Scanner"])
 app.include_router(forensic_report.router, prefix="/api/v1/forensic", tags=["Forensic Reports"])
 app.include_router(evidence_v2.router, prefix="/api/v2/evidence", tags=["Evidence V2"])
-app.include_router(evidence_v2.cases_router, prefix="/api/v2/cases", tags=["Cases V2"])
+app.include_router(cases_v2.router, prefix="/api/v2/cases", tags=["Cases V2"])
 app.include_router(policies_v2.router, prefix="/api/v2/policies", tags=["Policies V2"])
 app.include_router(health_v2.router, prefix="/api/v2/health", tags=["Health V2"])
 app.include_router(identity_v2.router, prefix="/api/v2", tags=["Identity & Wallet V2"])

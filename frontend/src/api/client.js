@@ -99,8 +99,107 @@ export class ApiV2Client {
    * Check subsystem readiness (ML engine, policy engine).
    * @returns {Promise<ReadyHealthResponse>}
    */
+  /**
+   * Check subsystem readiness (ML engine, policy engine).
+   * @returns {Promise<ReadyHealthResponse>}
+   */
   async checkReadyHealth() {
     return this._request('/api/v2/health/ready', { method: 'GET' })
+  }
+
+  /**
+   * List institutional cases with pagination cursor.
+   * @param {Object} options
+   * @param {number} [options.limit=50]
+   * @param {string|null} [options.cursor=null]
+   * @param {string|null} [options.token=null]
+   */
+  async listCases({ limit = 50, cursor = null, token = null } = {}) {
+    const params = new URLSearchParams()
+    if (limit) params.append('limit', String(limit))
+    if (cursor) params.append('cursor', cursor)
+    const qs = params.toString() ? `?${params.toString()}` : ''
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/cases${qs}`, { method: 'GET', headers })
+  }
+
+  /**
+   * Get case details, timeline events, and evidence count.
+   * @param {string} caseId
+   * @param {Object} options
+   * @param {string|null} [options.token=null]
+   */
+  async getCase(caseId, { token = null } = {}) {
+    const headers = token ? { Authorization: `Bearer ${token}` } : {}
+    return this._request(`/api/v2/cases/${caseId}`, { method: 'GET', headers })
+  }
+
+  /**
+   * Create new institutional case.
+   * @param {Object} payload
+   * @param {Object} options
+   * @param {string|null} [options.token=null]
+   * @param {string|null} [options.idempotencyKey=null]
+   */
+  async createCase(payload, { token = null, idempotencyKey = null } = {}) {
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+    return this._request('/api/v2/cases', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    })
+  }
+
+  /**
+   * Transition case state with Four-Eyes governance.
+   * @param {string} caseId
+   * @param {Object} payload
+   * @param {Object} options
+   * @param {string|null} [options.token=null]
+   * @param {string|null} [options.idempotencyKey=null]
+   */
+  async transitionCase(caseId, payload, { token = null, idempotencyKey = null } = {}) {
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+    return this._request(`/api/v2/cases/${caseId}/transition`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    })
+  }
+
+  /**
+   * Upload non-fungible evidence file attached to case.
+   * @param {string} caseId
+   * @param {File|Blob} file
+   * @param {Object} options
+   * @param {string|null} [options.token=null]
+   * @param {string|null} [options.idempotencyKey=null]
+   */
+  async uploadCaseEvidence(caseId, file, { token = null, idempotencyKey = null } = {}) {
+    const url = `${this.baseUrl}/api/v2/cases/${caseId}/evidence`
+    const formData = new FormData()
+    formData.append('file', file)
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      const err = new Error(data.detail || `Upload failed with status ${response.status}`)
+      err.status = response.status
+      err.body = data
+      throw err
+    }
+    return data
   }
 }
 
