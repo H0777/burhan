@@ -147,11 +147,13 @@ contract ComplianceRules {
     // ============================================================
 
     /**
-     * @dev Iraq Central Bank (CBI) compliance thresholds
-     *      Based on Iraqi AML Law No. 39 of 2015
+     * @dev Iraq Central Bank (CBI) baseline compliance thresholds for native ETH
+     *      All thresholds are configured in native wei (scale = 18).
+     *      Note: Native ETH thresholds are governed on-chain via MultiSig governance.
+     *      Fiat Iraqi Dinar (IQD, scale = 3) policies operate independently off-chain.
      */
     function _applyIraqCBIPolicy() internal {
-        largeTransactionThreshold = 10_000 ether;   // ~$10,000 equivalent
+        largeTransactionThreshold = 10_000 ether;   // 10,000 ETH large transaction reporting limit
         dailyVolumeLimit = 50_000 ether;             // ~$50,000/day
         maxDailyTransactions = 20;
         maxSingleTransaction = 100_000 ether;        // ~$100,000 hard cap
