@@ -57,29 +57,6 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
     bool public isPaused;
     uint256 public pauseEpoch;
 
-    /// @notice Track consumed proposals to prevent replay
-    mapping(uint256 => bool) private _consumedProposals;
-
-    /// @notice MultiSig enforcement flag for all overrides
-    bool public enforceMultiSigOverride;
-
-    /// @notice Timelock configuration for policy changes
-    uint256 public policyTimelockDelay; // 0 = immediate (testing/default), >0 = enforced delay
-
-    struct PendingPolicyChange {
-        PolicyProfile profile;
-        uint256 largeThreshold;
-        uint256 dailyLimit;
-        uint256 maxDaily;
-        uint256 maxSingle;
-        uint256 kycThreshold;
-        uint256 eta;
-        bool isCustom;
-        bool active;
-    }
-
-    PendingPolicyChange public pendingPolicyChange;
-
     enum AuditStatus { PENDING, CLEARED, FLAGGED, BLOCKED }
 
     struct Transaction {
@@ -121,28 +98,11 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
     // Advanced Enterprise & Academic events (5 features)
     event EmergencyPaused(address indexed by, string reason, uint256 timestamp);
     event EmergencyUnpaused(address indexed by, uint256 proposalId, uint256 timestamp);
-    event PolicyChangeProposed(PolicyProfile indexed profile, uint256 eta, bool isCustom, uint256 timestamp);
-    event PolicyChangeExecuted(PolicyProfile indexed profile, uint256 timestamp);
-    event PolicyChangeCancelled(uint256 timestamp);
     event AutomatedForensicIncidentCreated(uint256 indexed incidentId, uint256 indexed txId, string severity, uint256 timestamp);
-    event MultiSigEnforcementToggled(bool enforced, uint256 timestamp);
 
     // ============================================================
     // MODIFIERS
     // ============================================================
-
-    modifier onlyAdmin() {
-        if (isIntegrated) {
-            RoleManager.Role role = roleManager.getRole(msg.sender);
-            require(
-                role == RoleManager.Role.SUPER_ADMIN,
-                "AuditEngine: caller is not admin"
-            );
-        } else {
-            require(msg.sender == admin, "AuditEngine: caller is not admin");
-        }
-        _;
-    }
 
     modifier onlyGovernance() {
         require(
@@ -200,8 +160,6 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
         admin = msg.sender;
         _transactionCounter = 0;
         isPaused = false;
-        enforceMultiSigOverride = false;
-        policyTimelockDelay = 0; // immediate by default for backwards compatibility
     }
 
     // ============================================================
@@ -428,119 +386,6 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
         emit TransactionBlocked(_txId, txn.sender, txn.flagReason);
     }
 
-    /**
-     * @notice Override a flagged transaction (clear it despite warnings)
-     * @dev Enforces SoD and checks MultiSig enforcement flag
-     */
-    function overrideWarning(uint256 _txId, string calldata _justification) external onlyAuthorized whenNotPaused {
-        require(!enforceMultiSigOverride, "AuditEngine: MultiSig approval required for overrides");
-
-        Transaction storage txn = _transactions[_txId];
-        require(txn.status == AuditStatus.FLAGGED, "AuditEngine: can only override flagged transactions");
-
-        // Feature 2: Separation of Duties (SoD)
-        require(msg.sender != txn.sender, "AuditEngine: SoD conflict - caller is transaction sender");
-        require(msg.sender != txn.receiver, "AuditEngine: SoD conflict - caller is transaction receiver");
-
-        string memory previousWarning = txn.flagReason;
-        txn.isFlagged = false;
-        txn.flagReason = "";
-        txn.status = AuditStatus.CLEARED;
-
-        emit OverrideAttempted(msg.sender, _txId, previousWarning, block.timestamp);
-        emit TransactionCleared(_txId, block.timestamp);
-
-        if (isIntegrated) {
-            insiderLog.logActivity(
-                msg.sender,
-                InsiderActivityLog.ActivityType.TRANSACTION_OVERRIDE,
-                _txId,
-                txn.receiver,
-                _justification
-            );
-        }
-    }
-
-    /**
-     * @notice Feature 1: Enforced MultiSig Bridge for overriding warnings
-     * @dev Requires an approved proposal in MultiSigApproval
-     */
-    function overrideWarningWithMultiSig(
-        uint256 _txId,
-        uint256 _proposalId,
-        string calldata _justification
-    ) external onlyAuthorized whenNotPaused {
-        require(isIntegrated && address(multiSig) != address(0), "AuditEngine: MultiSig not integrated");
-        require(multiSig.isApproved(_proposalId), "AuditEngine: proposal not approved by MultiSig");
-        require(!_consumedProposals[_proposalId], "AuditEngine: proposal already executed or expired");
-        _consumedProposals[_proposalId] = true;
-
-        MultiSigApproval.Proposal memory prop = multiSig.getProposal(_proposalId);
-        require(
-            prop.proposalType == MultiSigApproval.ProposalType.OVERRIDE_WARNING,
-            "AuditEngine: invalid proposal type"
-        );
-
-        uint256 targetTxId = abi.decode(prop.data, (uint256));
-        require(targetTxId == _txId, "AuditEngine: proposal txId mismatch");
-
-        Transaction storage txn = _transactions[_txId];
-        require(txn.status == AuditStatus.FLAGGED, "AuditEngine: can only override flagged transactions");
-
-        // Feature 2: Separation of Duties (SoD)
-        require(msg.sender != txn.sender, "AuditEngine: SoD conflict - caller is transaction sender");
-        require(msg.sender != txn.receiver, "AuditEngine: SoD conflict - caller is transaction receiver");
-
-        string memory previousWarning = txn.flagReason;
-        txn.isFlagged = false;
-        txn.flagReason = "";
-        txn.status = AuditStatus.CLEARED;
-
-        emit OverrideAttempted(msg.sender, _txId, previousWarning, block.timestamp);
-        emit TransactionCleared(_txId, block.timestamp);
-
-        if (isIntegrated) {
-            insiderLog.logActivity(
-                msg.sender,
-                InsiderActivityLog.ActivityType.TRANSACTION_OVERRIDE,
-                _txId,
-                txn.receiver,
-                string(abi.encodePacked("MultiSig #", _justification))
-            );
-
-            // Log evidence to ForensicTrail if integrated
-            _logMultiSigOverrideEvidence(_txId, _proposalId, _justification);
-        }
-    }
-
-    function _logMultiSigOverrideEvidence(
-        uint256 _txId,
-        uint256 _proposalId,
-        string calldata _justification
-    ) internal {
-        if (address(forensicTrail) != address(0)) {
-            uint256 incId = forensicTrail.createIncident(
-                keccak256("MULTISIG_OVERRIDE_AUDIT"),
-                keccak256("LOW")
-            );
-            forensicTrail.submitEvidence(
-                incId,
-                keccak256(abi.encodePacked(block.chainid, address(this), _txId, _proposalId, "OVERRIDE")),
-                keccak256("MULTISIG_OVERRIDE_RECORD"),
-                keccak256(bytes(_justification)),
-                sha256(abi.encodePacked(_txId, _proposalId, msg.sender, block.timestamp))
-            );
-        }
-    }
-
-    /**
-     * @notice Toggle mandatory MultiSig enforcement for all overrides
-     */
-    function setMultiSigOverrideEnforcement(bool _enforce) external onlyAdmin {
-        enforceMultiSigOverride = _enforce;
-        emit MultiSigEnforcementToggled(_enforce, block.timestamp);
-    }
-
     function addToBlacklist(address _addr, string calldata _reason) external onlyAuthorized whenNotPaused {
         require(_addr != address(0), "AuditEngine: invalid address");
         require(_addr != admin, "AuditEngine: cannot blacklist admin");
@@ -620,130 +465,23 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
     }
 
     // ============================================================
-    // FEATURE 4: TIMELOCK ON POLICY CHANGES
+    // FEATURE 4 (R03): GOVERNANCE-ONLY POLICY EXECUTION
     // ============================================================
+    // The parallel admin paths (setPolicyTimelockDelay, proposePolicyChange,
+    // proposeCustomThresholds, executePolicyChange(), executePolicyChangeWithMultiSig,
+    // cancelPolicyChange, setPolicy, setCustomThresholds) are REMOVED. The
+    // decision and its timing live in the MultiSig coordinator alone: a
+    // POLICY_CHANGE proposal (86,400s delay) delivers the approved bytes here.
+    // These functions do NOT read any parallel proposal inside AuditEngine.
 
-    function setPolicyTimelockDelay(uint256 _delay) external onlyAdmin {
-        policyTimelockDelay = _delay;
-    }
-
-    function proposePolicyChange(PolicyProfile _policy) external onlyAdmin {
-        uint256 eta = block.timestamp + policyTimelockDelay;
-        pendingPolicyChange = PendingPolicyChange({
-            profile: _policy,
-            largeThreshold: 0,
-            dailyLimit: 0,
-            maxDaily: 0,
-            maxSingle: 0,
-            kycThreshold: 0,
-            eta: eta,
-            isCustom: false,
-            active: true
-        });
-        emit PolicyChangeProposed(_policy, eta, false, block.timestamp);
-    }
-
-    function proposeCustomThresholds(
-        uint256 _largeThreshold,
-        uint256 _dailyLimit,
-        uint256 _maxDaily,
-        uint256 _maxSingle,
-        uint256 _kycThreshold
-    ) external onlyAdmin {
-        uint256 eta = block.timestamp + policyTimelockDelay;
-        pendingPolicyChange = PendingPolicyChange({
-            profile: PolicyProfile.CUSTOM,
-            largeThreshold: _largeThreshold,
-            dailyLimit: _dailyLimit,
-            maxDaily: _maxDaily,
-            maxSingle: _maxSingle,
-            kycThreshold: _kycThreshold,
-            eta: eta,
-            isCustom: true,
-            active: true
-        });
-        emit PolicyChangeProposed(PolicyProfile.CUSTOM, eta, true, block.timestamp);
-    }
-
-    function executePolicyChange() external onlyAdmin {
-        require(pendingPolicyChange.active, "AuditEngine: no pending policy change");
-        require(block.timestamp >= pendingPolicyChange.eta, "AuditEngine: timelock has not expired");
-
-        PolicyProfile applied = pendingPolicyChange.profile;
-        if (pendingPolicyChange.isCustom) {
-            _setCustomThresholds(
-                pendingPolicyChange.largeThreshold,
-                pendingPolicyChange.dailyLimit,
-                pendingPolicyChange.maxDaily,
-                pendingPolicyChange.maxSingle,
-                pendingPolicyChange.kycThreshold
-            );
-        } else {
-            _setPolicy(applied);
-        }
-
-        pendingPolicyChange.active = false;
-
-        if (isIntegrated) {
-            insiderLog.logActivity(
-                msg.sender,
-                InsiderActivityLog.ActivityType.POLICY_CHANGE,
-                0,
-                address(0),
-                "Policy change executed via timelock"
-            );
-        }
-
-        emit PolicyChangeExecuted(applied, block.timestamp);
-    }
-
-    function executePolicyChangeWithMultiSig(uint256 _proposalId) external onlyAdmin {
-        require(pendingPolicyChange.active, "AuditEngine: no pending policy change");
-        require(isIntegrated && address(multiSig) != address(0), "AuditEngine: MultiSig not integrated");
-        require(multiSig.isApproved(_proposalId), "AuditEngine: proposal not approved by MultiSig");
-
-        MultiSigApproval.Proposal memory prop = multiSig.getProposal(_proposalId);
-        require(
-            prop.proposalType == MultiSigApproval.ProposalType.POLICY_CHANGE,
-            "AuditEngine: invalid proposal type"
-        );
-
-        PolicyProfile applied = pendingPolicyChange.profile;
-        if (pendingPolicyChange.isCustom) {
-            _setCustomThresholds(
-                pendingPolicyChange.largeThreshold,
-                pendingPolicyChange.dailyLimit,
-                pendingPolicyChange.maxDaily,
-                pendingPolicyChange.maxSingle,
-                pendingPolicyChange.kycThreshold
-            );
-        } else {
-            _setPolicy(applied);
-        }
-
-        pendingPolicyChange.active = false;
-
-        if (isIntegrated) {
-            insiderLog.logActivity(
-                msg.sender,
-                InsiderActivityLog.ActivityType.POLICY_CHANGE,
-                0,
-                address(0),
-                "Policy change executed via MultiSig bypass"
-            );
-        }
-
-        emit PolicyChangeExecuted(applied, block.timestamp);
-    }
-
-    function cancelPolicyChange() external onlyAdmin {
-        require(pendingPolicyChange.active, "AuditEngine: no pending policy change");
-        pendingPolicyChange.active = false;
-        emit PolicyChangeCancelled(block.timestamp);
-    }
-
-    function setPolicy(PolicyProfile _policy) external onlyAdmin {
-        require(policyTimelockDelay == 0, "AuditEngine: timelock active - use proposePolicyChange");
+    /**
+     * @notice R03: apply a predefined compliance policy profile (governance only)
+     * @dev In the integrated system governance is the MultiSig coordinator, so
+     *      this is reachable exclusively through an executed POLICY_CHANGE
+     *      proposal. No timelock is re-evaluated here — the coordinator's
+     *      notBefore already enforced the 86,400s delay.
+     */
+    function executePolicyChange(PolicyProfile _policy) external onlyGovernance {
         _setPolicy(_policy);
 
         if (isIntegrated) {
@@ -752,21 +490,26 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
                 InsiderActivityLog.ActivityType.POLICY_CHANGE,
                 0,
                 address(0),
-                "Compliance policy changed"
+                "Policy change executed via governance"
             );
         }
 
         emit PolicyChanged(_policy, msg.sender, block.timestamp);
     }
 
-    function setCustomThresholds(
+    /**
+     * @notice R03: apply custom compliance thresholds (governance only)
+     * @dev Delivered through an executed POLICY_CHANGE proposal carrying
+     *      executeCustomThresholds calldata; threshold validation lives in
+     *      ComplianceRules._setCustomThresholds.
+     */
+    function executeCustomThresholds(
         uint256 _largeThreshold,
         uint256 _dailyLimit,
         uint256 _maxDaily,
         uint256 _maxSingle,
         uint256 _kycThreshold
-    ) external onlyAdmin {
-        require(policyTimelockDelay == 0, "AuditEngine: timelock active - use proposeCustomThresholds");
+    ) external onlyGovernance {
         _setCustomThresholds(_largeThreshold, _dailyLimit, _maxDaily, _maxSingle, _kycThreshold);
 
         if (isIntegrated) {
@@ -775,9 +518,20 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
                 InsiderActivityLog.ActivityType.POLICY_CHANGE,
                 0,
                 address(0),
-                "Custom thresholds updated"
+                "Custom thresholds executed via governance"
             );
         }
+    }
+
+    /**
+     * @notice R03: configure business hours of the InsiderActivityLog
+     *      (governance only; SYSTEM_CONFIG closed action, 86,400s delay)
+     * @dev UTC context — the authoritative window lives in InsiderActivityLog;
+     *      this wrapper keeps the SYSTEM_CONFIG target on the AuditEngine.
+     */
+    function setBusinessHours(uint8 _start, uint8 _end) external onlyGovernance {
+        require(isIntegrated && address(insiderLog) != address(0), "AuditEngine: InsiderLog not integrated");
+        insiderLog.setBusinessHours(_start, _end);
     }
 
     // ============================================================
@@ -820,41 +574,10 @@ contract AuditEngine is IAuditEngine, ComplianceRules {
     }
 
     /**
-     * @notice Emergency Unpause: resumes transactions
-     * @dev Dual-Control: Requires MultiSig approval if integrated, preventing rogue insider unpausing
-     */
-    function emergencyUnpause(uint256 _proposalId) external onlyAuthorized whenPaused {
-        if (isIntegrated && address(multiSig) != address(0)) {
-            require(multiSig.isApproved(_proposalId), "AuditEngine: unpause requires MultiSig approval");
-            require(!_consumedProposals[_proposalId], "AuditEngine: proposal already executed or expired");
-            _consumedProposals[_proposalId] = true;
-
-            MultiSigApproval.Proposal memory prop = multiSig.getProposal(_proposalId);
-            require(
-                prop.proposalType == MultiSigApproval.ProposalType.POLICY_CHANGE ||
-                prop.proposalType == MultiSigApproval.ProposalType.EMERGENCY_UNPAUSE,
-                "AuditEngine: invalid unpause proposal type"
-            );
-        } else {
-            require(msg.sender == admin, "AuditEngine: only admin can unpause");
-        }
-
-        isPaused = false;
-        emit EmergencyUnpaused(msg.sender, _proposalId, block.timestamp);
-
-        if (isIntegrated) {
-            insiderLog.logActivity(
-                msg.sender,
-                InsiderActivityLog.ActivityType.POLICY_CHANGE,
-                0,
-                address(0),
-                "EMERGENCY UNPAUSE: Resumed operations"
-            );
-        }
-    }
-
-    /**
      * @notice Atomic execution from MultiSig coordinator to unpause engine
+     * @dev R03: the legacy emergencyUnpause(proposalId) consumer path is REMOVED
+     *      (dual control is enforced by the coordinator). The unpause is bound
+     *      to the CURRENT pauseEpoch: a stale-epoch replay can never execute.
      * @param _expectedEpoch The pauseEpoch for which the unpause proposal was approved
      */
     function executeEmergencyUnpause(uint256 _expectedEpoch) external onlyGovernance whenPaused {
