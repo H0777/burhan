@@ -1,6 +1,6 @@
 {
   "name": "cyber-audit-forensics-chain",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Integrating Digital Forensics and Financial Accounting: A Cyber-Auditing System for Mitigating Insider Threat Fraud",
   "main": "hardhat.config.js",
   "scripts": {

@@ -15,6 +15,31 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "bytes32",
+        "name": "requestId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "evidenceId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "manifestDigest",
+        "type": "bytes32"
+      }
+    ],
+    "name": "EvidenceManifestAnchored",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "uint256",
         "name": "incidentId",
         "type": "uint256"
@@ -174,6 +199,35 @@
       }
     ],
     "name": "createIncident",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "incidentId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_caseReferenceHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_titleHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_severityHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "createIncidentForCase",
     "outputs": [
       {
         "internalType": "uint256",
@@ -354,6 +408,44 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_caseReferenceHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getIncidentByCaseReference",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "_requestId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "getManifestDigest",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "governance",
     "outputs": [
@@ -445,6 +537,50 @@
       }
     ],
     "name": "submitEvidence",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "evidenceId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_incidentId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_requestId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_typeHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_descriptionHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_fileSha256",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "_manifestDigest",
+        "type": "bytes32"
+      }
+    ],
+    "name": "submitEvidenceAttested",
     "outputs": [
       {
         "internalType": "uint256",

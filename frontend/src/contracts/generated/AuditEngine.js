@@ -222,25 +222,6 @@ export default [
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "enforced",
-        "type": "bool"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "name": "MultiSigEnforcementToggled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
         "indexed": true,
         "internalType": "address",
         "name": "operator",
@@ -266,69 +247,6 @@ export default [
       }
     ],
     "name": "OverrideAttempted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "name": "PolicyChangeCancelled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "enum ComplianceRules.PolicyProfile",
-        "name": "profile",
-        "type": "uint8"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "name": "PolicyChangeExecuted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "enum ComplianceRules.PolicyProfile",
-        "name": "profile",
-        "type": "uint8"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "eta",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "bool",
-        "name": "isCustom",
-        "type": "bool"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      }
-    ],
-    "name": "PolicyChangeProposed",
     "type": "event"
   },
   {
@@ -666,13 +584,6 @@ export default [
   },
   {
     "inputs": [],
-    "name": "cancelPolicyChange",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "dailyVolumeLimit",
     "outputs": [
       {
@@ -701,26 +612,33 @@ export default [
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_proposalId",
+        "name": "_largeThreshold",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_dailyLimit",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxDaily",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_maxSingle",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_kycThreshold",
         "type": "uint256"
       }
     ],
-    "name": "emergencyUnpause",
+    "name": "executeCustomThresholds",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "enforceMultiSigOverride",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -765,21 +683,14 @@ export default [
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "executePolicyChange",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_proposalId",
-        "type": "uint256"
+        "internalType": "enum ComplianceRules.PolicyProfile",
+        "name": "_policy",
+        "type": "uint8"
       }
     ],
-    "name": "executePolicyChangeWithMultiSig",
+    "name": "executePolicyChange",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1162,47 +1073,6 @@ export default [
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_txId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "string",
-        "name": "_justification",
-        "type": "string"
-      }
-    ],
-    "name": "overrideWarning",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_txId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_proposalId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "string",
-        "name": "_justification",
-        "type": "string"
-      }
-    ],
-    "name": "overrideWarningWithMultiSig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "pauseEpoch",
     "outputs": [
@@ -1213,118 +1083,6 @@ export default [
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "pendingPolicyChange",
-    "outputs": [
-      {
-        "internalType": "enum ComplianceRules.PolicyProfile",
-        "name": "profile",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint256",
-        "name": "largeThreshold",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "dailyLimit",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "maxDaily",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "maxSingle",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "kycThreshold",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "eta",
-        "type": "uint256"
-      },
-      {
-        "internalType": "bool",
-        "name": "isCustom",
-        "type": "bool"
-      },
-      {
-        "internalType": "bool",
-        "name": "active",
-        "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "policyTimelockDelay",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_largeThreshold",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_dailyLimit",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxDaily",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxSingle",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_kycThreshold",
-        "type": "uint256"
-      }
-    ],
-    "name": "proposeCustomThresholds",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "enum ComplianceRules.PolicyProfile",
-        "name": "_policy",
-        "type": "uint8"
-      }
-    ],
-    "name": "proposePolicyChange",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1369,71 +1127,17 @@ export default [
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_largeThreshold",
-        "type": "uint256"
+        "internalType": "uint8",
+        "name": "_start",
+        "type": "uint8"
       },
       {
-        "internalType": "uint256",
-        "name": "_dailyLimit",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxDaily",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_maxSingle",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_kycThreshold",
-        "type": "uint256"
-      }
-    ],
-    "name": "setCustomThresholds",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bool",
-        "name": "_enforce",
-        "type": "bool"
-      }
-    ],
-    "name": "setMultiSigOverrideEnforcement",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "enum ComplianceRules.PolicyProfile",
-        "name": "_policy",
+        "internalType": "uint8",
+        "name": "_end",
         "type": "uint8"
       }
     ],
-    "name": "setPolicy",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_delay",
-        "type": "uint256"
-      }
-    ],
-    "name": "setPolicyTimelockDelay",
+    "name": "setBusinessHours",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

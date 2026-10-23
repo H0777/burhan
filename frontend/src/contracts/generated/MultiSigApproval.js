@@ -10,11 +10,6 @@ export default [
         "internalType": "uint256",
         "name": "_requiredApprovals",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_proposalTTLHours",
-        "type": "uint256"
       }
     ],
     "stateMutability": "nonpayable",
@@ -62,43 +57,6 @@ export default [
       }
     ],
     "name": "ContractsConfigured",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "proposalId",
-        "type": "uint256"
-      },
-      {
-        "indexed": true,
-        "internalType": "enum MultiSigApproval.ProposalType",
-        "name": "proposalType",
-        "type": "uint8"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "proposer",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "expiresAt",
-        "type": "uint256"
-      }
-    ],
-    "name": "LegacyProposalCreated",
     "type": "event"
   },
   {
@@ -174,9 +132,9 @@ export default [
       },
       {
         "indexed": false,
-        "internalType": "bytes32",
-        "name": "reasonHash",
-        "type": "bytes32"
+        "internalType": "string",
+        "name": "description",
+        "type": "string"
       }
     ],
     "name": "ProposalCreated",
@@ -250,6 +208,32 @@ export default [
     ],
     "name": "ProposalRejected",
     "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "PROPOSAL_TTL",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "TIMELOCK_DELAY",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
     "inputs": [
@@ -364,9 +348,9 @@ export default [
         "type": "bytes"
       },
       {
-        "internalType": "bytes32",
-        "name": "_reasonHash",
-        "type": "bytes32"
+        "internalType": "string",
+        "name": "_description",
+        "type": "string"
       }
     ],
     "name": "createProposal",
@@ -494,13 +478,8 @@ export default [
             "type": "bytes32"
           },
           {
-            "internalType": "bytes32",
-            "name": "reasonHash",
-            "type": "bytes32"
-          },
-          {
             "internalType": "string",
-            "name": "reason",
+            "name": "description",
             "type": "string"
           },
           {
@@ -651,19 +630,6 @@ export default [
     "name": "markExpired",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "proposalTTL",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
