@@ -39,10 +39,10 @@ const ProposalType = {
 // Fixed institutional roster IDs — deterministic fixture values, deliberately
 // NOT derived from personal names or wallet addresses. The person↔id mapping
 // is held off-chain in institutional membership records (spec §4).
-const PID_A = "0xF75C6EBDDEFB3CCFCAF608A6E4EC673954D92C03384453B0558BAAD01B8F9312";
-const PID_B = "0xB8E57F1639EE0D87D1D6E4DEA50AD06C36252162AEDFA000809B86EB52B816B5";
-const PID_C = "0xDD00ACD20D9AA7C09F37A8B907F5DA520B77C0F437FFA54788911409A319C478";
-const PID_D = "0x657ABC488CDBEB7F617116B73EC1508431FF09C7BFABED6F1C83AB4967113EE7";
+const PID_A = "0xf75c6ebddefb3ccfcaf608a6e4ec673954d92c03384453b0558baad01b8f9312";
+const PID_B = "0xb8e57f1639ee0d87d1d6e4dea50ad06c36252162aedfa000809b86eb52b816b5";
+const PID_C = "0xdd00acd20d9aa7c09f37a8b907f5da520b77c0f437ffa54788911409a319c478";
+const PID_D = "0x657abc488cdbeb7f617116b73ec1508431ff09c7bfabed6f1c83ab4967113ee7";
 
 describe("Participant Identity, Wallet Rotation & Bootstrap Quorum (R02)", function () {
   // ------------------------------------------------------------------
