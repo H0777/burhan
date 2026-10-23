@@ -70,7 +70,7 @@ const LEGACY_INTERFACE = new ethers.Interface([
 const LARGE_AMOUNT = ethers.parseEther("15000");
 
 async function setNextBlockTimestamp(ts) {
-  await ethers.provider.send("evm_setNextBlockTimestamp", [ts]);
+  await ethers.provider.send("evm_setNextBlockTimestamp", [Number(ts)]);
 }
 
 async function governanceProposal(system, { proposer, type, target, data, description }) {

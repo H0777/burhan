@@ -23,9 +23,10 @@ async function deploySystemFixture(customSigners) {
   const signers = customSigners || (await ethers.getSigners());
   const [bootstrapAuthority, admin, auditor1, auditor2, operator, regulator, outsider] = signers;
 
-  // 1. Deploy MultiSig
+  // 1. Deploy MultiSig (TTL is the fixed protocol constant 259,200s — not a
+  //    deployment parameter since R03)
   const MultiSigApproval = await ethers.getContractFactory("MultiSigApproval");
-  const multiSig = await MultiSigApproval.deploy(bootstrapAuthority.address, 2, 24);
+  const multiSig = await MultiSigApproval.deploy(bootstrapAuthority.address, 2);
   await multiSig.waitForDeployment();
   const multiSigAddress = await multiSig.getAddress();
 
@@ -103,4 +104,5 @@ async function deploySystemFixture(customSigners) {
 module.exports = {
   deploySystemFixture,
   Role,
+  PARTICIPANT_IDS,
 };
