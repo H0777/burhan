@@ -1,0 +1,69 @@
+"""
+AI Engine - FastAPI Application
+Cyber-Forensic Auditing Framework
+Integrating Digital Forensics and Financial Accounting
+
+Main entry point for the AI-driven fraud detection and forensic reporting engine.
+"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+
+from app.routes import risk_scoring, insider_detection, contract_scanner, forensic_report
+from app.routes.v2 import evidence as evidence_v2
+from app.config import settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application startup and shutdown events."""
+    print("🤖 AI Engine starting...")
+    print(f"   Mode: {'API + Local' if settings.GEMINI_API_KEY else 'Local Only'}")
+    print(f"   Model: {settings.LOCAL_MODEL_PATH}")
+    yield
+    print("🤖 AI Engine shutting down...")
+
+
+app = FastAPI(
+    title="Cyber-Forensic AI Engine",
+    description=(
+        "AI-driven fraud detection and forensic reporting engine. "
+        "Supports local ML inference (zero-cost, offline) and optional "
+        "Gemini API integration for advanced contract analysis and report generation."
+    ),
+    version="2.0.0",
+    lifespan=lifespan,
+)
+
+# CORS — allow frontend access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount route modules
+app.include_router(risk_scoring.router, prefix="/api/v1/risk", tags=["Risk Scoring"])
+app.include_router(insider_detection.router, prefix="/api/v1/insider", tags=["Insider Detection"])
+app.include_router(contract_scanner.router, prefix="/api/v1/contract", tags=["Contract Scanner"])
+app.include_router(forensic_report.router, prefix="/api/v1/forensic", tags=["Forensic Reports"])
+app.include_router(evidence_v2.router, prefix="/api/v2/evidence", tags=["Evidence V2"])
+
+
+@app.get("/api/v1/health", tags=["System"])
+async def health_check():
+    """Check system health and capabilities."""
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "capabilities": {
+            "local_ml": True,
+            "gemini_api": bool(settings.GEMINI_API_KEY),
+            "contract_scanning": bool(settings.GEMINI_API_KEY),
+            "forensic_reports": True,
+        },
+        "active_model": settings.LOCAL_MODEL_PATH,
+    }

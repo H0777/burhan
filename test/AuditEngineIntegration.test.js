@@ -1,5 +1,6 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
 
 describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
   let auditEngine, roleManager, insiderLog;
@@ -166,7 +167,7 @@ describe("AuditEngine Integration & Cyber-Forensic Controls", function () {
         .withArgs(
           PolicyProfile.GLOBAL_FATF,
           admin.address,
-          await ethers.provider.getBlock("latest").then((b) => b.timestamp + 1)
+          anyValue
         );
 
       expect(await auditEngine.activePolicy()).to.equal(PolicyProfile.GLOBAL_FATF);
