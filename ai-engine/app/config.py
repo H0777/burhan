@@ -56,6 +56,16 @@ class Settings(BaseSettings):
     BUSINESS_HOUR_START: int = 8
     BUSINESS_HOUR_END: int = 17
 
+    # Database & Multi-Tenant Persistence (T14)
+    DATABASE_URL: str = "postgresql+psycopg://cyber_audit_app:cyber_audit_secure_pass@localhost:5432/cyber_audit_chain"
+    DATABASE_ECHO: bool = False
+    
+    # Evidence Vault Object Storage (T14)
+    EVIDENCE_STORE_PATH: str = str(
+        Path(__file__).parent.parent / "data" / "evidence_vault"
+    )
+    MAX_EVIDENCE_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MB
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

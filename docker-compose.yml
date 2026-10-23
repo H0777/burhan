@@ -58,15 +58,39 @@ services:
       - MAX_BENEFICIARY_REPEAT=10
       - MIN_DECISION_TIME_SECONDS=10.0
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DATABASE_URL=postgresql+psycopg://audit_admin:audit_admin_secret@postgres:5432/cyber_audit
+      - EVIDENCE_STORE_PATH=/app/data/evidence
     depends_on:
       hardhat-node:
         condition: service_healthy
       contract-deployer:
         condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
     networks:
       - cyber_audit_isolated_net
 
-  # 4. React + Vite Cyber-Auditing Dashboard (Isolated port 3005)
+  # 4. Multi-Tenant Relational Database (PostgreSQL 16 with RLS support)
+  postgres:
+    image: postgres:16-alpine
+    container_name: cyber_audit_postgres
+    environment:
+      POSTGRES_DB: cyber_audit
+      POSTGRES_USER: audit_admin
+      POSTGRES_PASSWORD: audit_admin_secret
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit_admin -d cyber_audit"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cyber_audit_isolated_net
+
+  # 5. React + Vite Cyber-Auditing Dashboard (Isolated port 3005)
   frontend:
     build:
       context: ./frontend
@@ -82,6 +106,9 @@ services:
         condition: service_healthy
     networks:
       - cyber_audit_isolated_net
+
+volumes:
+  postgres_data:
 
 networks:
   cyber_audit_isolated_net:
