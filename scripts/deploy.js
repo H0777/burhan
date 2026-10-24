@@ -164,11 +164,14 @@ async function runDeployment(options = {}) {
   console.log("   -> Cross-contract wiring configured successfully.");
 
   // 8. Bootstrap the institutional roster (spec §5 + R04 operational roles):
-  //    - 4 UNIQUE ELIGIBLE voters (SUPER_ADMIN + 3 AUDITOR)
+  //    - the SAME 4 UNIQUE ELIGIBLE voters as the R03 roster (signers 1-4:
+  //      SUPER_ADMIN + 3 AUDITOR; the deployer stays un-enrolled and its
+  //      temporary bootstrap role is dropped at finalization)
   //    - 1 non-voting OPERATOR (daily transactions) and 1 non-voting REGULATOR
-  //      (external oversight), enrolled deliberately in the same atomic call.
+  //      (external oversight), enrolled deliberately in the same atomic call —
+  //      eligible-voter quorum is unaffected (only SUPER_ADMIN/AUDITOR count).
   console.log("8. Bootstrapping institutional roster (4 eligible voters + OPERATOR + REGULATOR)...");
-  const participantAccounts = [0, 1, 2, 3, 4, 5].map((i) => signerOr(i));
+  const participantAccounts = [1, 2, 3, 4, 5, 6].map((i) => signerOr(i));
   // Deterministic institutional roster fixture ids (fixed off-chain roster
   // values, never derived from names or addresses — R02).
   const participantIds = [
@@ -221,6 +224,7 @@ async function runDeployment(options = {}) {
   assertEq("bootstrapAuthority revoked", await multiSig.bootstrapAuthority(), hre.ethers.ZeroAddress);
   assertEq("eligible participants", await roleManager.countEligibleParticipants(), 4);
   assertEq("active participants", await roleManager.countActiveParticipants(), participantAccounts.length);
+  assertEq("deployer stays un-enrolled (role NONE)", await roleManager.getRole(deployer.address), 0);
   assertEq("AuditEngine.isIntegrated", await auditEngine.isIntegrated(), true);
   assertEq("AuditEngine.multiSig wiring", await auditEngine.multiSig(), multiSigAddress);
   assertEq("InsiderLog recorder=AuditEngine", await insiderLog.isRecorder(auditEngineAddress), true);

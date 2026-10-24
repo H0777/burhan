@@ -83,11 +83,11 @@ describe("Deployment Invariants (R04)", function () {
   });
 
   describe("fresh_standard_deployment", function () {
-    let deployer, voterB, voterC, voterD, operator, regulator;
+    let deployer, voterA, voterB, voterC, voterD, operator, regulator;
     let multiSig, roleManager, insiderLog, forensicTrail, complianceRules, auditEngine;
 
     beforeEach(async function () {
-      [, voterB, voterC, voterD, operator, regulator] = await ethers.getSigners();
+      [, voterA, voterB, voterC, voterD, operator, regulator] = await ethers.getSigners();
       deployer = (await ethers.getSigners())[0];
 
       multiSig = await (await ethers.getContractFactory("MultiSigApproval")).deploy(deployer.address, 2);
@@ -131,10 +131,10 @@ describe("Deployment Invariants (R04)", function () {
         ethers.id("INST-REGULATOR-01"),
       ];
       const rosterWallets = [
+        voterA.address,
         voterB.address,
         voterC.address,
         voterD.address,
-        deployer.address,
         operator.address,
         regulator.address,
       ];
@@ -157,11 +157,12 @@ describe("Deployment Invariants (R04)", function () {
       expect(await multiSig.requiredApprovals()).to.equal(2);
       expect(await multiSig.PROPOSAL_TTL()).to.equal(TTL_SECONDS);
 
-      // Roster: exactly 4 eligible voters; operator/regulator enrolled but non-voting
+      // Roster: exactly 4 eligible voters (deployer un-enrolled); operator/regulator enrolled but non-voting
       expect(await roleManager.countEligibleParticipants()).to.equal(4);
       expect(await roleManager.countActiveParticipants()).to.equal(6);
       expect(await roleManager.getRole(operator.address)).to.equal(Role.OPERATOR);
       expect(await roleManager.getRole(regulator.address)).to.equal(Role.REGULATOR);
+      expect(await roleManager.getRole(deployer.address)).to.equal(Role.NONE);
 
       // Cross-contract writer/recorder wiring
       expect(await auditEngine.isIntegrated()).to.equal(true);
