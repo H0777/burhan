@@ -4,7 +4,7 @@
   "rpc_url": "http://127.0.0.1:8545",
   "ai_engine_url": "/api",
   "app_mode": "demo",
-  "contract_version": "2.0.0",
+  "contract_version": "2.1.0",
   "contracts": {
     "RoleManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
     "InsiderActivityLog": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
