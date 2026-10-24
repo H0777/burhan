@@ -389,15 +389,13 @@ def test_key_expiry_boundary_second():
 def test_signature_change_alters_envelope_digest():
     key_a = new_key()
     key_b = new_key()
-    provider = make_provider({
-        "INST-A": ("INST-A-K1", key_a),
-        "INST-B": ("INST-B-K1", key_b),
-    })
     body = make_body("INST-A", "INST-A-K1")
-    env_a = sign_env(provider, "INST-A", "INST-A-K1", body)
-    # identical body (same key_id etc.), different signing key -> different
-    # signature; the envelope digest must change even though the body did not.
-    env_b = sign_env(provider, "INST-B", "INST-B-K1", json.loads(json.dumps(body)))
+    env_a = sign_env(make_provider({"INST-A": ("INST-A-K1", key_a)}), "INST-A", "INST-A-K1", body)
+    # same (institution_id, key_id) re-keyed to a different private key ->
+    # different signature over a byte-identical body; the envelope digest
+    # must change even though the body did not.
+    env_b = sign_env(make_provider({"INST-A": ("INST-A-K1", key_b)}), "INST-A", "INST-A-K1",
+                     json.loads(json.dumps(body)))
 
     assert canonical_bytes(env_a.body) == canonical_bytes(env_b.body)
     assert env_a.signature != env_b.signature
