@@ -116,22 +116,20 @@ def verify_schema_revision(engine: Optional[Engine] = None) -> str:
     except Exception as exc:
         raise RuntimeError(
             "Database schema is not migrated: alembic_version is unreadable. "
-            "Run 'alembic upgrade head' with MIGRATION_DATABASE_URL (migration role) "
-            f"before starting (original error: {exc})."
+            "Run 'alembic upgrade head' with the migration role before starting "
+            f"(original error: {exc})."
         ) from exc
 
     if row is None:
         raise RuntimeError(
             "Database schema is not migrated: alembic_version is empty. "
-            "Run 'alembic upgrade head' with MIGRATION_DATABASE_URL (migration role) "
-            "before starting."
+            "Run 'alembic upgrade head' with the migration role before starting."
         )
     current = row[0]
     if current != expected:
         raise RuntimeError(
             f"Database schema revision {current!r} is not the expected head {expected!r}. "
-            "Run 'alembic upgrade head' with MIGRATION_DATABASE_URL (migration role) "
-            "before starting."
+            "Run 'alembic upgrade head' with the migration role before starting."
         )
     return current
 

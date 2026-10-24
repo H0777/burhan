@@ -146,11 +146,19 @@ def seeded(migrated_db, owner_engine):
     """
     OwnerSession = sessionmaker(bind=owner_engine)
     with OwnerSession() as session:
-        session.add(Institution(id=TENANT_A, name="Central Bank of Iraq"))
-        session.add(Institution(id=TENANT_B, name="Rafidain Bank"))
+        for inst_id, name in ((TENANT_A, "Central Bank of Iraq"), (TENANT_B, "Rafidain Bank")):
+            if session.get(Institution, inst_id) is None:
+                session.add(Institution(id=inst_id, name=name))
         session.commit()
 
         for inst in (TENANT_A, TENANT_B):
+            # The test database persists across suite runs — seed only when absent.
+            # The existence check itself must run under the tenant context: the
+            # migration owner is subject to FORCE RLS on institutional tables too.
+            with tenant_transaction(session, inst):
+                already_seeded = session.get(Membership, f"memb_{inst}") is not None
+            if already_seeded:
+                continue
             with tenant_transaction(session, inst):
                 session.add_all(
                     [
@@ -808,6 +816,12 @@ def test_migration_owner_env_absent_from_api_process(pg_urls):
     offenders = []
     app_source_dir = AI_ENGINE_DIR / "app"
     for path in app_source_dir.rglob("*.py"):
+        # The alembic runner (app/db/migrations/env.py) is the ONE legitimate
+        # consumer of the owner env var — it executes only inside the migration
+        # job, never inside the API process. Everything else (config, main,
+        # session, routes, services, workers) must not reference it at all.
+        if "migrations" in path.parts:
+            continue
         if MIGRATION_OWNER_ENV_VAR in path.read_text(encoding="utf-8", errors="ignore"):
             offenders.append(str(path))
     assert offenders == [], f"app source must not reference {MIGRATION_OWNER_ENV_VAR}: {offenders}"
