@@ -1,109 +1,167 @@
-"""
-Unit Tests for Research Partitioning & Split Isolation (T19)
-Specification §6, §8 (R12, R13)
-Enforces zero data leakage and strict subject isolation between splits.
-"""
+"""R17 split-policy tests — temporal + participant-disjoint partitioning,
+full-fingerprint manifests, and fail-closed validation (spec §6, §8, §9).
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Tuple
-import hashlib
+Rewritten for the R17 cutoff-based ``partition_splits`` /
+``validate_splits`` interface. The pre-R17 sender-sorted partitioner and its
+hash-over-first-50-IDs scheme are replaced; the hash-stability-on-tamper
+expectation of the old ``test_zero_holdout_leakage_on_alteration`` is
+INVERTED (full-content fingerprints must catch holdout tampering).
+"""
+import copy
 import json
 
+import pytest
 
-def create_mock_dataset(num_records: int = 500) -> List[Dict[str, Any]]:
-    """Creates a deterministic sequence of transactions spanning 30 days across 20 distinct senders."""
-    base_time = datetime(2026, 1, 1, 8, 0, 0, tzinfo=timezone.utc)
-    records = []
-    for i in range(num_records):
-        sender_id = f"ACC-SENDER-{(i % 20):03d}"
-        occurred_at = base_time + timedelta(hours=i * 1.2)
-        records.append({
-            "id": f"TX-{i:05d}",
-            "sender_ref": sender_id,
-            "occurred_at": occurred_at.isoformat(),
-            "amount_minor": (1000 + (i * 37) % 50000) * 1000,
-            "is_sar_reportable": 1 if (i % 7 == 0) else 0,
-        })
-    return records
-
-
-def partition_dataset_isolated(
-    records: List[Dict[str, Any]],
-    train_ratio: float = 0.70,
-    val_ratio: float = 0.15,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str]:
-    """
-    Partitions dataset ensuring:
-    1. Temporal ordering (sorted by occurred_at).
-    2. Strict subject isolation (senders in train never appear in val or test).
-    Returns (train, val, test, split_hash).
-    """
-    sorted_records = sorted(records, key=lambda x: x["occurred_at"])
-
-    # Group senders deterministically
-    all_senders = sorted(list(set(r["sender_ref"] for r in sorted_records)))
-    num_senders = len(all_senders)
-
-    n_train_senders = int(num_senders * train_ratio)
-    n_val_senders = int(num_senders * val_ratio)
-
-    train_senders = set(all_senders[:n_train_senders])
-    val_senders = set(all_senders[n_train_senders:n_train_senders + n_val_senders])
-    test_senders = set(all_senders[n_train_senders + n_val_senders:])
-
-    train = [r for r in sorted_records if r["sender_ref"] in train_senders]
-    val = [r for r in sorted_records if r["sender_ref"] in val_senders]
-    test = [r for r in sorted_records if r["sender_ref"] in test_senders]
-
-    # Compute deterministic split hash
-    manifest_bytes = json.dumps({
-        "train_ids": [r["id"] for r in train],
-        "val_ids": [r["id"] for r in val],
-        "test_ids": [r["id"] for r in test],
-    }, sort_keys=True).encode("utf-8")
-    split_hash = "0x" + hashlib.sha256(manifest_bytes).hexdigest().lower()
-
-    return train, val, test, split_hash
+from conftest import (
+    TRAIN_END,
+    VALIDATION_END,
+    build_records,
+    cohort_plan,
+    impl,
+    partition_under_test,
+    participant_ids_of,
+    record_time,
+)
+from research import run_experiments
 
 
 def test_subject_isolation_zero_overlap():
-    """Confirms no sender exists in more than one partition."""
-    records = create_mock_dataset(500)
-    train, val, test, _ = partition_dataset_isolated(records)
+    """No participant appears in more than one partition."""
+    records = build_records(cohort_plan())
+    manifest = partition_under_test(records, TRAIN_END, VALIDATION_END)
 
-    train_senders = set(r["sender_ref"] for r in train)
-    val_senders = set(r["sender_ref"] for r in val)
-    test_senders = set(r["sender_ref"] for r in test)
+    train_actors = participant_ids_of(manifest, "train")
+    val_actors = participant_ids_of(manifest, "validation")
+    test_actors = participant_ids_of(manifest, "test")
 
-    assert train_senders.isdisjoint(val_senders), "Data leakage: train and val share subjects"
-    assert train_senders.isdisjoint(test_senders), "Data leakage: train and test share subjects"
-    assert val_senders.isdisjoint(test_senders), "Data leakage: val and test share subjects"
+    assert train_actors and val_actors and test_actors
+    assert train_actors.isdisjoint(val_actors), "leakage: train and val share actors"
+    assert train_actors.isdisjoint(test_actors), "leakage: train and test share actors"
+    assert val_actors.isdisjoint(test_actors), "leakage: val and test share actors"
 
 
 def test_split_determinism_and_hash():
-    """Confirms identical input data produces identical split hash."""
-    records_1 = create_mock_dataset(300)
-    records_2 = create_mock_dataset(300)
+    """Identical input data yields an identical manifest hash and full
+    ordered ID lists (deterministic partition, no sampling)."""
+    records_a = build_records(cohort_plan())
+    records_b = build_records(cohort_plan())
 
-    train_1, val_1, test_1, hash_1 = partition_dataset_isolated(records_1)
-    train_2, val_2, test_2, hash_2 = partition_dataset_isolated(records_2)
+    m_a = partition_under_test(records_a, TRAIN_END, VALIDATION_END)
+    m_b = partition_under_test(records_b, TRAIN_END, VALIDATION_END)
 
-    assert hash_1 == hash_2
-    assert len(train_1) == len(train_2)
-    assert len(test_1) == len(test_2)
-    assert hash_1.startswith("0x") and len(hash_1) == 66
+    assert m_a.manifest_hash == m_b.manifest_hash
+    assert m_a.manifest_hash.startswith("0x") and len(m_a.manifest_hash) == 66
+    for name in ("train", "validation", "test"):
+        assert m_a.splits[name].record_ids == m_b.splits[name].record_ids
+        assert len(m_a.splits[name].record_ids) == 160  # FULL list, not [:50]
 
 
 def test_zero_holdout_leakage_on_alteration():
-    """Confirms that modifying holdout test data results in different split hash."""
-    records = create_mock_dataset(300)
-    _, _, _, hash_original = partition_dataset_isolated(records)
+    """Altering holdout content changes the manifest hash and the test-split
+    fingerprint (full-content fingerprints expose holdout tampering)."""
+    records = build_records(cohort_plan())
+    m_orig = partition_under_test(records, TRAIN_END, VALIDATION_END)
 
-    # Alter one test record
-    altered_records = list(records)
-    altered_records[-1] = dict(altered_records[-1])
-    altered_records[-1]["amount_minor"] += 99999
+    test_ids = list(m_orig.splits["test"].record_ids)
+    altered = []
+    for r in records:
+        if r["id"] == test_ids[0]:
+            r = dict(r)
+            r["amount_minor"] += 99999
+        altered.append(r)
 
-    _, _, _, hash_altered = partition_dataset_isolated(altered_records)
-    assert hash_original == hash_altered, "IDs unchanged, partition hash stable"
+    m_altered = partition_under_test(altered, TRAIN_END, VALIDATION_END)
+
+    assert m_altered.manifest_hash != m_orig.manifest_hash, (
+        "holdout content tampering left the manifest fingerprint unchanged")
+    assert m_altered.splits["test"].fingerprint != m_orig.splits["test"].fingerprint
+    # partition membership itself is unchanged (IDs, not content, decide splits)
+    assert m_altered.splits["test"].record_ids == m_orig.splits["test"].record_ids
+
+
+def test_validate_splits_rejects_tampered_manifest():
+    """validate_splits fails closed on any mismatch between the manifest and
+    the source records: membership tampering, fingerprint tampering, dropped
+    coverage, or cutoff tampering."""
+    validate_splits = impl(run_experiments, "validate_splits")
+    split_validation_error = impl(run_experiments, "SplitValidationError")
+
+    records = build_records(cohort_plan())
+    manifest = partition_under_test(records, TRAIN_END, VALIDATION_END)
+    validate_splits(manifest, records)  # a valid manifest must pass
+
+    # tamper 1: a train record ID moved into the validation list
+    tampered = copy.deepcopy(manifest)
+    moved = tampered.splits["train"].record_ids.pop()
+    tampered.splits["validation"].record_ids.append(moved)
+    with pytest.raises(split_validation_error):
+        validate_splits(tampered, records)
+
+    # tamper 2: forged split fingerprint
+    tampered = copy.deepcopy(manifest)
+    tampered.splits["train"].fingerprint = "0x" + "0" * 64
+    with pytest.raises(split_validation_error):
+        validate_splits(tampered, records)
+
+    # tamper 3: a record silently removed from the manifest (no coverage)
+    tampered = copy.deepcopy(manifest)
+    tampered.splits["train"].record_ids.pop()
+    with pytest.raises(split_validation_error):
+        validate_splits(tampered, records)
+
+    # tamper 4: cutoffs edited after the fact
+    tampered = copy.deepcopy(manifest)
+    tampered.cutoffs["validation_end"] = "2030-01-01T00:00:00Z"
+    with pytest.raises(split_validation_error):
+        validate_splits(tampered, records)
+
+
+def test_every_source_id_in_exactly_one_split_or_dropped():
+    """Every source record is either in exactly one split or carries a
+    recorded drop reason; drop reasons use the fixed R17 codes."""
+    cohorts = cohort_plan()
+    cohorts.append({"name": "transient", "participants": 1, "per_participant": 3,
+                    "start_h": 40, "end_h": 90,
+                    "label_fn": lambda p, j: 1 if j == 1 else 0})
+    cohorts.append({"name": "spill", "participants": 1, "times": [4, 8, 30, 100],
+                    "label_fn": lambda p, j: 1 if j == 3 else 0})
+    records = build_records(cohorts)
+
+    manifest = partition_under_test(records, TRAIN_END, VALIDATION_END)
+
+    seen = []
+    for name in ("train", "validation", "test"):
+        seen.extend(manifest.splits[name].record_ids)
+
+    seen.extend(d.record_id for d in manifest.dropped)
+    assert sorted(seen) == sorted(r["id"] for r in records), "coverage gap"
+    assert len(seen) == len(set(seen)), "a record entered two splits"
+    valid_reasons = {run_experiments.DROP_REASON_TRAIN_PARTICIPANT_FUTURE_RECORD,
+                     run_experiments.DROP_REASON_CROSSES_VALIDATION_TEST_BOUNDARY}
+    assert manifest.dropped, "the planted crossing/spill records must be dropped"
+    for d in manifest.dropped:
+        assert d.reason in valid_reasons
+        assert d.participant_id
+
+
+def test_run_pipeline_reports_insufficient_data_honestly():
+    """The runner must record INSUFFICIENT_DATA (never SUPPORTED) when strict
+    temporal+participant-disjoint splitting leaves an evaluation split below
+    the minimum, and must not produce metrics or a model artifact."""
+    suite = run_experiments.run_experiment_suite
+    root_dir = run_experiments.ROOT_DIR
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        result = suite(str(root_dir / "research" / "protocol.json"),
+                       max_records=200, results_dir=tmp)
+        assert result["outcome"] == "INSUFFICIENT_DATA"
+
+        run_manifest = json.loads(
+            (result["run_dir"] / "run-manifest.json").read_text(encoding="utf-8"))
+        assert run_manifest["outcome"] == "INSUFFICIENT_DATA"
+        assert "metrics" not in run_manifest
+        assert "model_hash" not in run_manifest
+        readme = (result["run_dir"] / "README.md").read_text(encoding="utf-8")
+        assert "SUPPORTED" not in readme
+        assert not (result["run_dir"] / "model.joblib").exists()
