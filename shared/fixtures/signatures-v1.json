@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "note": "SYNTHETIC TEST FIXTURE - generated for R05 tests only. Every key, institution id and statement here is fake. No real institution key material exists in this repository; the throwaway private key used to produce these envelopes was discarded at generation time and is NOT committed.",
+  "generated_at": "2026-10-24T00:00:00+00:00",
+  "canonical_json": {
+    "spec": "UTF-8; sort_keys=True; separators=(',',':'); ensure_ascii=False; allow_nan=False; no floats; no duplicate keys; no Unicode normalization"
+  },
+  "trust_registry": {
+    "schema_version": 1,
+    "generated_at": "2026-10-24T00:00:00+00:00",
+    "entries": [
+      {
+        "institution_id": "TEST-INST-001",
+        "key_id": "TEST-KEY-2026-01",
+        "public_key": "SiSlwHdMfpZuXJ3rtFXCi+hESmPyhAeetTnCDRsMfKI=",
+        "valid_from": "2020-01-01T00:00:00+00:00",
+        "valid_until": "2040-01-01T00:00:00+00:00",
+        "status": "active",
+        "revoked_at": null,
+        "invalid_from": null
+      }
+    ]
+  },
+  "envelopes": [
+    {
+      "domain": "AML_SERVICE_MANIFEST_V1",
+      "envelope": {
+        "body": {
+          "institution_id": "TEST-INST-001",
+          "key_id": "TEST-KEY-2026-01",
+          "schema_version": 1,
+          "manifest": {
+            "service": "ai-engine",
+            "version": "1.0.0",
+            "issued_at": "2026-10-24T00:00:00+00:00",
+            "statement_ar": "إفادة خدمة التدقيق المالي العراقية — بيان اصطناعي للاختبار",
+            "totals": {
+              "cases": 12,
+              "alerts": 7,
+              "sar_flagged": 2
+            },
+            "domains": [
+              "AML_SERVICE_MANIFEST_V1",
+              "AML_DOSSIER_V1",
+              "AML_BACKUP_V1"
+            ]
+          }
+        },
+        "algorithm": "Ed25519",
+        "signature": "lUiCorXgVu/q/LvYDAQxROOy4/o1D9oL+ABCo2HdzbdRgkvRw5jOtpE25pjvXv+cTJE7L8ykzs9h3KyqkZPaCw=="
+      },
+      "envelope_digest_sha256": "2c3f03d468ba2a01ddd64706a69adc0ebcf87b14456824aa036bd30a9acd6d7d"
+    },
+    {
+      "domain": "AML_DOSSIER_V1",
+      "envelope": {
+        "body": {
+          "institution_id": "TEST-INST-001",
+          "key_id": "TEST-KEY-2026-01",
+          "schema_version": 1,
+          "dossier": {
+            "dossier_id": "DOSSIER-TEST-0001",
+            "title_ar": "ملف حالة اصطناعي للتحقق من التوقيع",
+            "entry_count": 3
+          }
+        },
+        "algorithm": "Ed25519",
+        "signature": "EU/HoWC+gG9rySXDBQsmHCXgnXy9+aWqsldHCOPOeKRlbnKMAXOuMtheLcGeBHYIe/NCdbNAG6g+2KjMEIssAA=="
+      },
+      "envelope_digest_sha256": "bb6e2e06ff0294fc3f8e7c979e6a42cb3e017e4217021018b2aff0f5e6111513"
+    }
+  ]
+}

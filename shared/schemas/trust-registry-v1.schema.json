@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iraq-aml-audit-chain/schemas/trust-registry-v1.schema.json",
+  "title": "AML Trust Registry v1",
+  "description": "External, authoritative trust registry (spec section 6). One entry binds (institution_id, key_id) to a raw Ed25519 public key (base64 of 32 bytes). Lifecycle: active; retired (accepted only with an external trusted_time inside the validity window; a date read from inside a ZIP is never trusted_time); revoked (revoked_at recorded, always invalid); compromised (invalidates signatures with trusted_time >= invalid_from; a missing invalid_from invalidates EVERY signature of that key). Verifiers fail closed on missing keys or an unavailable registry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "entries"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/registryEntry" }
+    }
+  },
+  "$defs": {
+    "base64Raw32": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{42}==$",
+      "description": "base64 (standard alphabet) of exactly 32 raw bytes (an Ed25519 public key)."
+    },
+    "registryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "institution_id",
+        "key_id",
+        "public_key",
+        "valid_from",
+        "valid_until",
+        "status",
+        "revoked_at",
+        "invalid_from"
+      ],
+      "properties": {
+        "institution_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "public_key": { "$ref": "#/$defs/base64Raw32" },
+        "valid_from": { "type": "string", "format": "date-time" },
+        "valid_until": { "type": "string", "format": "date-time" },
+        "status": { "enum": ["active", "retired", "revoked", "compromised"] },
+        "revoked_at": {
+          "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
+        },
+        "invalid_from": {
+          "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }],
+          "description": "Compromise horizon for status=compromised. Required to be non-null for compromised entries; verifiers treat a compromised entry without invalid_from as invalidating all of that key's signatures."
+        }
+      }
+    }
+  }
+}
