@@ -46,7 +46,11 @@ const FALLBACK_ACCOUNTS = [
 ];
 
 function signerOr(index) {
-  return signerCache[index] || FALLBACK_ACCOUNTS[index];
+  const signer = signerCache[index];
+  if (!signer) return FALLBACK_ACCOUNTS[index];
+  // Signers must contribute their ADDRESS string — never the signer object
+  // (a Signer stringifies to "<SignerWithAddress 0x…>" which corrupts the manifest).
+  return typeof signer === "string" ? signer : signer.address;
 }
 
 let signerCache = [];
