@@ -14,11 +14,16 @@ module.exports = {
   },
   networks: {
     hardhat: {
-      chainId: 31337
+      chainId: 31337,
+      // R04/F08: standard EIP-170 limit enforced everywhere — production
+      // contracts must fit the 24,000-byte runtime budget (see
+      // scripts/check-contract-size.js). Never re-enable unlimited size.
+      allowUnlimitedContractSize: false
     },
     localhost: {
       url: "http://127.0.0.1:8545",
-      chainId: 31337
+      chainId: 31337,
+      allowUnlimitedContractSize: false
     },
     sepolia: {
       url: process.env.SEPOLIA_RPC_URL || "",
