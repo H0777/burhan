@@ -105,10 +105,12 @@ class FixedKeyProvider:
         return candidates[0]
 
     def wrap_data_key(self, institution_id: str, dek: bytes) -> dict:
-        from app.security.signing import wrap_data_key
+        from app.security.signing import wrap_data_key, x25519_from_ed25519_seed
 
         key_id = self.get_current_key_id(institution_id)
-        wrapped = wrap_data_key(self.get_signing_key(institution_id, key_id).public_key(), dek)
+        private_key = self.get_signing_key(institution_id, key_id)
+        recipient = x25519_from_ed25519_seed(private_key).public_key()
+        wrapped = wrap_data_key(recipient, dek)
         wrapped["recipient_key_id"] = key_id
         return wrapped
 
