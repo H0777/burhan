@@ -1,9 +1,17 @@
 """
-Database Session and Tenant Transaction Management (T14)
-Specification §4, §7 (R01, R09)
-Enforces transaction-scoped tenant isolation (SET LOCAL app.current_institution_id).
+Database Session and Tenant Transaction Management (T14, R11)
+Specification §4, §7 (R01, R09, R11)
+Enforces transaction-scoped tenant isolation via
+`SELECT set_config('app.current_institution_id', :id, true)` — transaction-local,
+so the context can never leak to a reused pooled connection.
+
+R11: PostgreSQL schema ownership belongs to alembic migrations (run with the
+dedicated migration/owner role, see ops/postgres/init-roles.sql). The
+production startup path verifies the schema revision and NEVER creates tables
+or seeds data; create_all/seed are confined to the SQLite dev/demo path.
 """
 
+from pathlib import Path
 from typing import Generator, Optional
 from contextlib import contextmanager
 from sqlalchemy import create_engine, text, event
@@ -11,10 +19,17 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.engine import Engine
 
 from app.config import settings
-from app.db.models import Base, Institution, generate_rls_sql
+from app.db.models import Base, Institution
+from app.security.tenant_context import TenantContext
 
 _engine: Optional[Engine] = None
 _session_factory: Optional[sessionmaker] = None
+
+ALEMBIC_INI_PATH = Path(__file__).resolve().parents[2] / "alembic.ini"
+# Used only when alembic.ini/alembic itself is unavailable (e.g. minimal
+# deployments without the migration scripts); the real head comes from the
+# alembic script directory whenever possible.
+FALLBACK_HEAD_REVISION = "r11_baseline"
 
 
 def get_engine(database_url: Optional[str] = None) -> Engine:
@@ -68,19 +83,80 @@ def get_session_factory(engine: Optional[Engine] = None) -> sessionmaker:
     return _session_factory
 
 
-def init_db(engine: Optional[Engine] = None) -> None:
+def _alembic_head_revision() -> str:
+    """Best-effort current head of the alembic script directory."""
+    try:
+        from alembic.config import Config as AlembicConfig
+        from alembic.script import ScriptDirectory
+
+        if not ALEMBIC_INI_PATH.exists():
+            return FALLBACK_HEAD_REVISION
+        script = ScriptDirectory.from_config(AlembicConfig(str(ALEMBIC_INI_PATH)))
+        return script.get_current_head() or FALLBACK_HEAD_REVISION
+    except Exception:
+        return FALLBACK_HEAD_REVISION
+
+
+def verify_schema_revision(engine: Optional[Engine] = None) -> str:
     """
-    Initializes database tables, seeds default demo institution, and applies RLS policies if PostgreSQL.
+    R11 production startup gate: the PostgreSQL database must be migrated to the
+    current alembic head. Never creates tables and never seeds data.
+
+    Raises RuntimeError when the database is unmigrated (no alembic_version) or
+    not at head. On SQLite (dev/demo) this check is a no-op and returns a marker.
     """
     eng = engine or get_engine()
-    Base.metadata.create_all(bind=eng)
-    if "postgresql" in str(eng.url):
-        with eng.connect() as conn:
-            for sql in generate_rls_sql():
-                conn.execute(text(sql))
-            conn.commit()
+    if eng.dialect.name != "postgresql":
+        return "sqlite-dev"
 
-    # Ensure default institution exists for development and testing
+    expected = _alembic_head_revision()
+    try:
+        with eng.connect() as conn:
+            row = conn.execute(text("SELECT version_num FROM alembic_version")).first()
+    except Exception as exc:
+        raise RuntimeError(
+            "Database schema is not migrated: alembic_version is unreadable. "
+            "Run 'alembic upgrade head' with MIGRATION_DATABASE_URL (migration role) "
+            f"before starting (original error: {exc})."
+        ) from exc
+
+    if row is None:
+        raise RuntimeError(
+            "Database schema is not migrated: alembic_version is empty. "
+            "Run 'alembic upgrade head' with MIGRATION_DATABASE_URL (migration role) "
+            "before starting."
+        )
+    current = row[0]
+    if current != expected:
+        raise RuntimeError(
+            f"Database schema revision {current!r} is not the expected head {expected!r}. "
+            "Run 'alembic upgrade head' with MIGRATION_DATABASE_URL (migration role) "
+            "before starting."
+        )
+    return current
+
+
+def init_db(engine: Optional[Engine] = None) -> None:
+    """
+    Startup database initialization (R11).
+
+    PostgreSQL (production/institutional path): verifies the schema is migrated to
+    the alembic head and nothing else — migrations own the schema; create_all and
+    seeding are never called here.
+
+    SQLite (local dev/demo/test ONLY): creates tables and seeds the demo
+    institution, which is where schema bootstrap is confined per spec §8.
+    """
+    eng = engine or get_engine()
+    if eng.dialect.name != "postgresql":
+        Base.metadata.create_all(bind=eng)
+        _seed_demo_institution(eng)
+        return
+    verify_schema_revision(eng)
+
+
+def _seed_demo_institution(eng: Engine) -> None:
+    """Dev/demo-only default institution seed (SQLite path)."""
     session_factory = get_session_factory(eng)
     with session_factory() as session:
         default_inst = session.get(Institution, settings.INSTITUTION_ID)
@@ -98,22 +174,32 @@ def init_db(engine: Optional[Engine] = None) -> None:
 @contextmanager
 def tenant_transaction(session: Session, institution_id: str) -> Generator[Session, None, None]:
     """
-    Context manager that sets the local tenant context within a transaction.
-    Guarantees rollback on error and proper session cleanup.
+    Context manager that applies the transaction-local tenant context within one
+    transaction, committing on success and rolling back on any error.
+
+    PostgreSQL: `SELECT set_config('app.current_institution_id', :inst_id, true)`.
+    The third argument (is_local=true) makes the setting vanish at COMMIT or
+    ROLLBACK, so a pooled connection is always reused WITHOUT a tenant context
+    (R11: `SET LOCAL` cannot take bound parameters — set_config is the only
+    valid bindable form).
+
+    SQLite: there is no server-side tenant context; isolation is enforced by the
+    repositories (logic-only dev/test path).
     """
     if not institution_id or not isinstance(institution_id, str):
         raise ValueError("Valid institution_id required for tenant_transaction")
 
     inst_id = institution_id.strip()
+    # Shared validation type for the institutional tenant context.
+    TenantContext(inst_id)
 
-    # If running on PostgreSQL, set transaction-local tenant variable
     bind = session.get_bind()
-    is_postgres = "postgresql" in str(bind.url) if bind else False
+    is_postgres = bool(bind) and bind.dialect.name == "postgresql"
 
     try:
         if is_postgres:
             session.execute(
-                text("SET LOCAL app.current_institution_id = :inst_id"),
+                text("SELECT set_config('app.current_institution_id', :inst_id, true)"),
                 {"inst_id": inst_id},
             )
         yield session
@@ -133,4 +219,3 @@ def get_db() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-

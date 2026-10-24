@@ -1,6 +1,16 @@
 """
-Institutional Tenant Context.
+Institutional Tenant Context (R11).
 Ensures institution_id is scoped per request and prevents cross-tenant data leakage.
+
+R11 binding: this is the shared validation type for the institutional tenant
+boundary. app.db.session.tenant_transaction validates through TenantContext and
+applies the SAME institution id to PostgreSQL row-level security with a
+transaction-local `SELECT set_config('app.current_institution_id', :id, true)`
+inside one transaction; the id used for authorization checks and the id bound
+to RLS must therefore always be the exact same string. Every repository,
+route, and worker that touches institutional data must run inside a
+tenant_transaction (or an equivalent transaction-local context) — never with a
+BYPASSRLS PostgreSQL user.
 """
 
 from typing import Optional

@@ -1,8 +1,14 @@
 """
-Integration Tests for Multi-Tenant Storage and Isolation (T14)
-Specification §4, §5, §7 (R01, R04, R08, R09, R14)
-Tests tenant isolation, composite foreign key constraints, WORM immutability,
-idempotency handling, and RLS DDL generation.
+Integration Tests for Multi-Tenant Storage and Isolation (T14, R11)
+Specification §4, §5, §7 (R01, R04, R08, R09, R14, R11)
+
+LOGIC-ONLY (SQLite in-memory): these tests exercise repository logic, composite
+foreign keys, WORM immutability, idempotency handling, and RLS DDL *generation*
+against in-memory SQLite. They are NOT evidence of PostgreSQL row-level
+security enforcement — the real-PostgreSQL guarantees (FORCE RLS, least-
+privilege roles, transaction-local tenant context, migration conventions) are
+proven by tests/integration/test_postgres_rls.py (R11), which is skipped unless
+DATABASE_URL / MIGRATION_DATABASE_URL point at a disposable test database.
 """
 
 import pytest
@@ -231,12 +237,22 @@ def test_idempotency_conflict_detection(db_session):
 
 
 def test_rls_sql_generation():
-    """Verify that generate_rls_sql outputs complete PostgreSQL RLS DDL for all scoped tables."""
+    """Verify that generate_rls_sql outputs the PostgreSQL RLS DDL mirroring the
+    alembic baseline: ENABLE+FORCE+policy per institutional table, plus the
+    explicit read-only policy on the global institutions table."""
     sqls = generate_rls_sql()
-    assert len(sqls) == len(RLS_TABLES) * 4  # 4 statements per table: ENABLE, FORCE, DROP, CREATE
+    assert len(sqls) == len(RLS_TABLES) * 4 + 2  # 4 per tenant table + institutions
 
     for table in RLS_TABLES:
         assert any(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;" in s for s in sqls)
         assert any(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;" in s for s in sqls)
         assert any(f"CREATE POLICY tenant_isolation_policy ON {table}" in s for s in sqls)
         assert any("current_setting('app.current_institution_id', true)" in s for s in sqls)
+
+    # Global table: explicit policy, read-only — never assumed safe.
+    assert any("ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;" in s for s in sqls)
+    assert any(
+        "CREATE POLICY institutions_read_all ON institutions FOR SELECT USING (true);" in s
+        for s in sqls
+    )
+    assert not any("FORCE ROW LEVEL SECURITY" in s and "institutions" in s for s in sqls)
