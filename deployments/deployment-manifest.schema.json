@@ -1,0 +1,140 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "deployments/deployment-manifest.schema.json",
+  "title": "DeploymentBinding Manifest v3 (R04)",
+  "description": "Authoritative binding of a standard deployment: institution, chain, contract addresses, deployed runtime code hashes, roster and governance snapshot. Private keys are NOT valid fields anywhere in this document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "deployment_id",
+    "institution_id",
+    "chain_id",
+    "network",
+    "contract_version",
+    "status",
+    "deployed_at",
+    "deployed_at_block",
+    "confirmation_depth",
+    "deployer",
+    "bootstrap_finalized",
+    "addresses",
+    "deployed_code_hashes",
+    "governance",
+    "participants"
+  ],
+  "properties": {
+    "manifest_version": { "const": 3 },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "description": "keccak256-derived unique id bound to chain + MultiSig address + finalization block hash"
+    },
+    "institution_id": { "type": "string", "minLength": 1 },
+    "chain_id": { "type": "integer", "minimum": 1 },
+    "network": { "type": "string", "minLength": 1 },
+    "contract_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "status": { "enum": ["active", "superseded", "retired"] },
+    "deployed_at": { "type": "string", "minLength": 20 },
+    "deployed_at_block": { "type": "integer", "minimum": 0 },
+    "confirmation_depth": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Confirmations required before trusting the binding; 2 on local chains (spec section 7)"
+    },
+    "deployer": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "bootstrap_finalized": { "const": true },
+    "addresses": { "$ref": "#/definitions/contractAddressMap" },
+    "deployed_code_hashes": { "$ref": "#/definitions/codeHashMap" },
+    "governance": { "$ref": "#/definitions/governanceSnapshot" },
+    "participants": { "$ref": "#/definitions/roster" }
+  },
+  "patternProperties": {
+    ".*([Pp]rivate[_ -]?[Kk]eys?|[Mm]nemonic|[Ss]eed[_ -]?[Pp]hrase).*": { "not": {} }
+  },
+  "definitions": {
+    "contractAddressMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "MultiSigApproval",
+        "RoleManager",
+        "InsiderActivityLog",
+        "ForensicTrail",
+        "ComplianceRules",
+        "AuditEngine"
+      ],
+      "propertyNames": {
+        "enum": [
+          "MultiSigApproval",
+          "RoleManager",
+          "InsiderActivityLog",
+          "ForensicTrail",
+          "ComplianceRules",
+          "AuditEngine"
+        ]
+      },
+      "patternProperties": {
+        ".*": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" }
+      }
+    },
+    "codeHashMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "MultiSigApproval",
+        "RoleManager",
+        "InsiderActivityLog",
+        "ForensicTrail",
+        "ComplianceRules",
+        "AuditEngine"
+      ],
+      "propertyNames": {
+        "enum": [
+          "MultiSigApproval",
+          "RoleManager",
+          "InsiderActivityLog",
+          "ForensicTrail",
+          "ComplianceRules",
+          "AuditEngine"
+        ]
+      },
+      "patternProperties": {
+        ".*": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" }
+      }
+    },
+    "governanceSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required_approvals",
+        "proposal_ttl_seconds",
+        "timelock_delay_seconds",
+        "eligible_participants",
+        "active_participants"
+      ],
+      "properties": {
+        "required_approvals": { "type": "integer", "minimum": 2 },
+        "proposal_ttl_seconds": { "const": 259200 },
+        "timelock_delay_seconds": { "const": 86400 },
+        "eligible_participants": { "type": "integer", "minimum": 4 },
+        "active_participants": { "type": "integer", "minimum": 4 }
+      }
+    },
+    "roster": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["participant_id", "account", "role", "reason"],
+        "properties": {
+          "participant_id": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+          "account": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+          "role": { "type": "integer", "minimum": 1, "maximum": 4 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

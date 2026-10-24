@@ -1,5 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const fs = require("fs");
+const path = require("path");
 const {
   SIZE_BUDGET_BYTES,
   NETWORK_LIMIT_BYTES,
@@ -7,6 +9,12 @@ const {
   checkLinkage,
   runSizeGate,
 } = require("../../scripts/check-contract-size");
+const {
+  validateAgainstSchema,
+  validateDeploymentBinding,
+  scanForbiddenKeys,
+  SCHEMA_PATH,
+} = require("../../scripts/verify-deployment");
 
 /**
  * R04 — Deployment Invariants (F08 + standard deployment + roster)
@@ -160,6 +168,113 @@ describe("Deployment Invariants (R04)", function () {
       expect(await auditEngine.multiSig()).to.equal(await multiSig.getAddress());
       expect(await insiderLog.isRecorder(await auditEngine.getAddress())).to.equal(true);
       expect(await forensicTrail.isEvidenceWriter(await auditEngine.getAddress())).to.equal(true);
+    });
+  });
+
+  describe("manifest_wrong_chain_or_codehash_is_rejected", function () {
+    const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, "utf-8"));
+    const codeHash = ethers.id("runtime-code-fixture");
+    const wallet = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
+    function validManifestFixture() {
+      return {
+        manifest_version: 3,
+        deployment_id: ethers.id("deployment-fixture"),
+        institution_id: "INST-CENTRAL-DEMO",
+        chain_id: 31337,
+        network: "hardhat",
+        contract_version: "2.1.0",
+        status: "active",
+        deployed_at: new Date().toISOString(),
+        deployed_at_block: 13,
+        confirmation_depth: 2,
+        deployer: wallet,
+        bootstrap_finalized: true,
+        addresses: {
+          MultiSigApproval: wallet,
+          RoleManager: wallet,
+          InsiderActivityLog: wallet,
+          ForensicTrail: wallet,
+          ComplianceRules: wallet,
+          AuditEngine: wallet,
+        },
+        deployed_code_hashes: {
+          MultiSigApproval: codeHash,
+          RoleManager: codeHash,
+          InsiderActivityLog: codeHash,
+          ForensicTrail: codeHash,
+          ComplianceRules: codeHash,
+          AuditEngine: codeHash,
+        },
+        governance: {
+          required_approvals: 2,
+          proposal_ttl_seconds: 259200,
+          timelock_delay_seconds: 86400,
+          eligible_participants: 4,
+          active_participants: 6,
+        },
+        participants: [
+          ["roster-governance-1", 1],
+          ["roster-audit-1", 2],
+          ["roster-audit-2", 2],
+          ["roster-audit-3", 2],
+        ].map(([seed, role], idx) => ({
+          participant_id: ethers.id(seed),
+          account: `0x${String(idx + 1).padStart(40, "0")}`.slice(0, 42),
+          role,
+          reason: "fixture roster participant",
+        })),
+      };
+    }
+
+    it("accepts a schema-valid v3 manifest fixture", function () {
+      expect(validateAgainstSchema(validManifestFixture(), schema)).to.deep.equal([]);
+      expect(validateDeploymentBinding(validManifestFixture(), { chainId: 31337 })).to.deep.equal([]);
+    });
+
+    it("rejects a manifest bound to the wrong chain id", function () {
+      const errors = validateDeploymentBinding(validManifestFixture(), { chainId: 1 });
+      expect(errors.some((e) => e.includes("chain_id mismatch"))).to.equal(true);
+    });
+
+    it("rejects a manifest whose recorded code hash was tampered with", function () {
+      const tampered = validManifestFixture();
+      tampered.deployed_code_hashes.AuditEngine = ethers.id("tampered-code");
+      const errors = validateDeploymentBinding(tampered, {
+        chainId: 31337,
+        codeHashes: { AuditEngine: codeHash },
+      });
+      expect(errors.some((e) => e.includes("code hash mismatch for AuditEngine"))).to.equal(true);
+    });
+
+    it("rejects a manifest missing a required DeploymentBinding field", function () {
+      const incomplete = validManifestFixture();
+      delete incomplete.deployed_at_block;
+      const errors = validateAgainstSchema(incomplete, schema);
+      expect(errors.some((e) => e.includes("missing required field 'deployed_at_block'"))).to.equal(true);
+      expect(
+        validateDeploymentBinding(incomplete, {}).some((e) =>
+          e.includes("missing required DeploymentBinding field: deployed_at_block")
+        )
+      ).to.equal(true);
+    });
+
+    it("rejects any manifest carrying private-key-like fields", function () {
+      const poisoned = validManifestFixture();
+      poisoned.private_keys = { deployer: "0xdeadbeef" };
+      expect(validateAgainstSchema(poisoned, schema).length > 0).to.equal(true);
+      expect(scanForbiddenKeys(poisoned)).to.deep.equal(["private_keys"]);
+      expect(scanForbiddenKeys(validManifestFixture())).to.deep.equal([]);
+    });
+
+    it("rejects a local-chain manifest whose confirmation_depth is not 2", function () {
+      const shallow = validManifestFixture();
+      shallow.confirmation_depth = 12;
+      expect(
+        validateDeploymentBinding(shallow, { chainId: 31337 }).some((e) =>
+          e.includes("confirmation_depth must be 2")
+        )
+      ).to.equal(true);
     });
   });
 });
