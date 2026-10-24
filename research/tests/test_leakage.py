@@ -146,9 +146,11 @@ def test_scaler_fit_uses_train_only():
     only — never pooled with validation/test statistics."""
     fit_feature_scaler = impl(run_experiments, "fit_feature_scaler")
     records_to_matrix = impl(run_experiments, "records_to_matrix")
+    derive = impl(run_experiments, "derive_historical_features")
 
-    train_a = build_records([{"name": "train", "participants": 12,
-                              "per_participant": 20, "start_h": 0, "end_h": 20}])
+    train_a = derive(build_records([{"name": "train", "participants": 12,
+                                     "per_participant": 20,
+                                     "start_h": 0, "end_h": 20}]))
     train_b = [dict(r, amount_minor=r["amount_minor"] * 10) for r in train_a]
 
     scaler_a = fit_feature_scaler(train_a)

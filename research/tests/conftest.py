@@ -1,14 +1,11 @@
 """Shared helpers for R17 split-policy / leakage tests.
 
-Provides a deterministic windowed record builder and a partition seam that
-works against both the pre-R17 leaky sender-sorted partitioner (RED phase)
-and the R17 temporal/participant-disjoint ``partition_splits`` (GREEN phase).
+Provides a deterministic windowed record builder and the partition seam used
+by both test modules to call ``research.run_experiments.partition_splits``.
 """
 import sys
-import inspect
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -76,14 +73,18 @@ def build_records(cohorts, base_time=BASE_TIME):
                            for j in range(cohort["per_participant"])])
             for j, h in enumerate(hours):
                 seq += 1
+                amount_minor = 250_000_000 + seq * 1_000
+                tx_hour = int(h) % 24
                 records.append({
                     "id": f"TX-{prefix}-{p:03d}-{j:04d}",
                     "sender_ref": sender,
                     "receiver_ref": "ACC-RCV-000",
                     "occurred_at": (base_time + timedelta(hours=h)).isoformat(),
-                    "amount_minor": 250_000_000 + seq * 1_000,
+                    "amount_minor": amount_minor,
                     "currency": "IQD",
                     "scale": 3,
+                    "is_after_hours": 1 if (tx_hour < 5 or tx_hour >= 14) else 0,
+                    "structuring_ratio": round(amount_minor / 15_000_000_000, 4),
                     "is_sar_reportable": label_fn(p, j),
                 })
     return records
@@ -97,58 +98,13 @@ def impl(module, name):
     return obj
 
 
-class _LegacyView:
-    """Duck-typed view over the pre-R17 leaky partition_splits output.
-
-    The legacy implementation assigns whole senders (alphabetical order) to
-    splits, so every actor's full timeline lands in one split regardless of
-    the cutoffs. It drops nothing and its hash covers only the first 50
-    train/test IDs plus lengths.
-    """
-
-    def __init__(self, train, val, test, split_hash):
-        def entry(recs):
-            return SimpleNamespace(
-                record_ids=[r["id"] for r in recs],
-                participant_ids=sorted({r["sender_ref"] for r in recs}),
-                fingerprint=None,
-                record_count=len(recs),
-            )
-
-        self.splits = {"train": entry(train), "validation": entry(val),
-                       "test": entry(test)}
-        self.dropped = []
-        self.drop_summary = {}
-        self.manifest_hash = split_hash
-        self.source_fingerprint = None
-        self._records = {"train": train, "validation": val, "test": test}
-
-    def records(self, name):
-        return self._records[name]
-
-    def participant_ids(self, name):
-        return list(self.splits[name].participant_ids)
-
-
 def partition_under_test(records, train_end, validation_end, **kwargs):
-    """Seam: call the implementation under test.
+    """Seam: call the R17 implementation under test.
 
-    RED: the legacy signature is (records, train_ratio, val_ratio); the
-    cutoffs are emulated with time-derived ratios and the leaky 4-tuple
-    output is adapted into the manifest view so the policy assertions below
-    fail on real partitioning semantics, not fixture errors.
+    (RED phase adapted the pre-R17 leaky sender-sorted partitioner here; that
+    adapter was removed once partition_splits took the cutoff-based signature —
+    see commit c26c73c for the RED adapter and its captured failures.)
     """
-    sig = inspect.signature(run_experiments.partition_splits)
-    if "train_ratio" in sig.parameters:
-        ordered = sorted(records, key=lambda r: (r["occurred_at"], r["id"]))
-        n = max(1, len(ordered))
-        train_ratio = sum(1 for r in ordered
-                          if datetime.fromisoformat(r["occurred_at"]) <= train_end) / n
-        val_ratio = sum(1 for r in ordered
-                        if train_end < datetime.fromisoformat(r["occurred_at"]) <= validation_end) / n
-        train, val, test, split_hash = run_experiments.partition_splits(
-            records, train_ratio, val_ratio)
-        return _LegacyView(train, val, test, split_hash)
     return run_experiments.partition_splits(
         records, train_end, validation_end, **kwargs)
 
