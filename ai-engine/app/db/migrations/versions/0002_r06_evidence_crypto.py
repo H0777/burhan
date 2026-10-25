@@ -63,6 +63,14 @@ def upgrade() -> None:
             sa.Column(name, col_type, nullable=True, server_default=server_default),
         )
 
+    if is_postgres:
+        # FORCEd RLS applies to the table OWNER too (the migrator), and the
+        # tenant policy would hide every row from the maintenance UPDATEs
+        # below (no app.current_institution_id is set on a migration
+        # connection). Row-level maintenance is an owner operation: disable
+        # for the backfill, then re-assert the full R11 posture.
+        op.execute("ALTER TABLE evidence_objects DISABLE ROW LEVEL SECURITY")
+
     # Backfill: pre-R06 rows are plaintext reads of attested files. They stay
     # legacy_plaintext_read_only; `encrypted` is corrected to FALSE for them
     # (the previous default of TRUE was a false claim under R18 honesty).
