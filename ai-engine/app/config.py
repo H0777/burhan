@@ -95,13 +95,12 @@ def validate_startup_config() -> None:
     institutional mode must be fully provisioned before the API can start.
 
     Institutional mode FAILS TO START when:
-      - OIDC is disabled or its issuer/audience/JWKS endpoint are missing;
-      - the on-chain RoleManager address is missing (authorization reads are
-        mandatory: generation/role must be verified on-chain before sensitive
-        writes, and a failed read answers 503 — never a browser claim).
+      - OIDC is disabled or its issuer/audience/JWKS endpoint are missing.
 
-    Demo mode is an isolated development mode: OIDC off, demo identity, no
-    chain requirements.
+    (The on-chain RoleManager requirement is enforced where it applies — wallet
+    binding and pre-write authorization raise ChainUnavailableError without it,
+    answering 503 rather than trusting browser claims — so a read-only
+    institutional deployment is not blocked at startup.)
     """
     mode = settings.APP_MODE.strip().lower()
     if mode not in ("demo", "institutional"):
@@ -121,10 +120,8 @@ def validate_startup_config() -> None:
             missing.append("OIDC_AUDIENCE")
         if not settings.OIDC_JWKS_URL:
             missing.append("OIDC_JWKS_URL")
-        if not settings.ROLE_MANAGER_ADDRESS:
-            missing.append("ROLE_MANAGER_ADDRESS")
         if missing:
             raise RuntimeError(
-                "Institutional mode requires OIDC (issuer/audience/JWKS) and the "
-                f"on-chain RoleManager address; missing: {', '.join(missing)}"
+                "Institutional mode requires OIDC (issuer/audience/JWKS); "
+                f"missing: {', '.join(missing)}"
             )

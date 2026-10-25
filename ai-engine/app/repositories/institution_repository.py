@@ -51,16 +51,24 @@ def resolve_identity(session: Session, claims: dict) -> Identity:
     inst_id = str(institution_id).strip()
     subject = str(sub).strip()
 
+    # Read the membership INSIDE the transaction-local tenant context and
+    # snapshot it: after tenant_transaction commits, the ORM instance is
+    # expired and any lazy refresh would re-SELECT WITHOUT the RLS context
+    # (and correctly see nothing).
+    membership_snapshot: Optional[tuple] = None
     with tenant_transaction(session, inst_id):
         membership = get_membership(session, inst_id, subject)
+        if membership is not None:
+            membership_snapshot = (membership.is_active, membership.role, membership.email)
 
-    if membership is None or not membership.is_active:
+    if membership_snapshot is None or not membership_snapshot[0]:
         raise MembershipResolutionError(
             "No active institutional membership for this subject and institution"
         )
 
+    is_active, role_str, membership_email = membership_snapshot
     try:
-        role = RoleEnum(membership.role)
+        role = RoleEnum(role_str)
     except ValueError:
         role = RoleEnum.NONE  # fail-closed: unknown stored roles grant nothing
 
@@ -72,7 +80,7 @@ def resolve_identity(session: Session, claims: dict) -> Identity:
         institution_id=inst_id,
         role=role,
         permissions=[],
-        email=membership.email,
+        email=membership_email,
         participant_id=binding.participant_id if binding else None,
         wallet_address=binding.wallet_address if binding else None,
         authorization_generation=binding.authorization_generation if binding else None,

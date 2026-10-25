@@ -135,6 +135,12 @@ def _identity(sub: str = SUBJECT, institution: str = TENANT, role: RoleEnum = Ro
     )
 
 
+def _unique_sub() -> str:
+    """Per-test subject: the test database persists across runs, and bindings
+    are keyed by (institution, sub) — tests must never share one."""
+    return f"sub_{uuid.uuid4().hex[:12]}"
+
+
 def _service(engine=None, reader=None, domain: str = DOMAIN, chain_id: int = CHAIN_ID):
     """WalletBindingService bound to the given (real PostgreSQL) engine."""
     factory = sessionmaker(bind=engine) if engine is not None else None
@@ -181,6 +187,7 @@ def test_challenge_survives_process_restart(app_engine, seeded):
     """A challenge written through one engine/pool is still consumable after the
     engine, its pool and its sessions are fully disposed and rebuilt (the R10
     requirement that challenges live in PostgreSQL, not in process memory)."""
+    sub = _unique_sub()
     reader = _FakeRoleManagerReader()
     engine_a = _new_engine(app_engine)
     service_a = _service(engine=engine_a, reader=reader)
@@ -188,7 +195,7 @@ def test_challenge_survives_process_restart(app_engine, seeded):
 
     with sessionmaker(bind=engine_a)() as session:
         resp = service_a.create_challenge(
-            session, _identity(), WalletChallengeRequest(wallet_address=wallet.address, chain_id=CHAIN_ID)
+            session, _identity(sub), WalletChallengeRequest(wallet_address=wallet.address, chain_id=CHAIN_ID)
         )
     engine_a.dispose()  # everything the first "process" owned is gone
 
@@ -199,11 +206,11 @@ def test_challenge_survives_process_restart(app_engine, seeded):
         sig = wallet.sign_message(encode_defunct(text=resp.message)).signature.hex()
         with sessionmaker(bind=engine_b)() as session:
             binding = service_b.verify_and_bind(
-                session, _identity(), WalletVerifyRequest(challenge_id=resp.challenge_id, signature=sig)
+                session, _identity(sub), WalletVerifyRequest(challenge_id=resp.challenge_id, signature=sig)
             )
         assert binding.bound is True
         assert binding.participant_id == "0x" + "ab" * 32
-        active = service_b.get_active_binding(TENANT, SUBJECT)
+        active = service_b.get_active_binding(TENANT, sub)
         assert active is not None
         assert active.wallet_address.lower() == wallet.address.lower()
         assert active.authorization_generation == 1
@@ -242,22 +249,25 @@ def test_challenge_row_persists_all_bound_fields(app_engine, seeded):
             assert row.consumed_at is None
 
         # Unique challenge nonce: a second row with the same nonce must be refused.
+        # (Inside the tenant context, so the RLS WITH CHECK passes and the UNIQUE
+        # nonce constraint is what fires.)
         with pytest.raises(IntegrityError):
-            session.add(
-                WalletChallengeModel(
-                    id=f"wc_{uuid.uuid4().hex[:12]}",
-                    institution_id=TENANT,
-                    sub=SUBJECT,
-                    wallet_address="0x" + "b" * 40,
-                    domain=DOMAIN,
-                    chain_id=CHAIN_ID,
-                    nonce=resp.nonce,  # duplicate
-                    message="duplicate nonce attempt",
-                    issued_at=now,
-                    expires_at=now + timedelta(seconds=300),
+            with tenant_transaction(session, TENANT):
+                session.add(
+                    WalletChallengeModel(
+                        id=f"wc_{uuid.uuid4().hex[:12]}",
+                        institution_id=TENANT,
+                        sub=SUBJECT,
+                        wallet_address="0x" + "b" * 40,
+                        domain=DOMAIN,
+                        chain_id=CHAIN_ID,
+                        nonce=resp.nonce,  # duplicate
+                        message="duplicate nonce attempt",
+                        issued_at=now,
+                        expires_at=now + timedelta(seconds=300),
+                    )
                 )
-            )
-            session.flush()
+                session.flush()
         session.rollback()
 
 
@@ -307,6 +317,7 @@ def test_consume_once_two_sessions(app_engine, seeded):
     """Two independent physical connections race for the same challenge: exactly
     one wins, the loser is rejected with the canonical single-use error, and the
     on-chain reader is never consulted for the losing attempt."""
+    sub = _unique_sub()
     reader = _FakeRoleManagerReader()
     engine_1 = _new_engine(app_engine)
     engine_2 = _new_engine(app_engine)
@@ -316,20 +327,20 @@ def test_consume_once_two_sessions(app_engine, seeded):
 
     with sessionmaker(bind=engine_1)() as session:
         resp = service.create_challenge(
-            session, _identity(), WalletChallengeRequest(wallet_address=wallet.address, chain_id=CHAIN_ID)
+            session, _identity(sub), WalletChallengeRequest(wallet_address=wallet.address, chain_id=CHAIN_ID)
         )
     sig = wallet.sign_message(encode_defunct(text=resp.message)).signature.hex()
 
     with sessionmaker(bind=engine_1)() as first:
         binding = service.verify_and_bind(
-            first, _identity(), WalletVerifyRequest(challenge_id=resp.challenge_id, signature=sig)
+            first, _identity(sub), WalletVerifyRequest(challenge_id=resp.challenge_id, signature=sig)
         )
     assert binding.bound is True
 
     with pytest.raises(ValueError, match="Challenge already used or expired"):
         with sessionmaker(bind=engine_2)() as second:
             service.verify_and_bind(
-                second, _identity(), WalletVerifyRequest(challenge_id=resp.challenge_id, signature=sig)
+                second, _identity(sub), WalletVerifyRequest(challenge_id=resp.challenge_id, signature=sig)
             )
     assert reader.read_count == 1, "the losing session must not reach the chain"
     engine_1.dispose()
@@ -507,6 +518,7 @@ def test_rotated_wallet_generation_rejected(app_engine, seeded):
     """After governance rotates the identity to a new wallet, the retired wallet
     fails verification against the on-chain participant record, and the new
     wallet binds with the CURRENT on-chain generation."""
+    sub = _unique_sub()
     reader = _FakeRoleManagerReader()
     engine = _new_engine(app_engine)
     service = _service(engine=engine, reader=reader)
@@ -517,12 +529,12 @@ def test_rotated_wallet_generation_rejected(app_engine, seeded):
     reader.set_participant(wallet_old.address, pid, 1, "AUDITOR", True)
     with sessionmaker(bind=engine)() as session:
         resp_old = service.create_challenge(
-            session, _identity(), WalletChallengeRequest(wallet_address=wallet_old.address, chain_id=CHAIN_ID)
+            session, _identity(sub), WalletChallengeRequest(wallet_address=wallet_old.address, chain_id=CHAIN_ID)
         )
     sig_old = wallet_old.sign_message(encode_defunct(text=resp_old.message)).signature.hex()
     with sessionmaker(bind=engine)() as session:
         binding = service.verify_and_bind(
-            session, _identity(), WalletVerifyRequest(challenge_id=resp_old.challenge_id, signature=sig_old)
+            session, _identity(sub), WalletVerifyRequest(challenge_id=resp_old.challenge_id, signature=sig_old)
         )
     assert binding.authorization_generation == 1
     assert binding.participant_id == pid
@@ -534,28 +546,28 @@ def test_rotated_wallet_generation_rejected(app_engine, seeded):
     # A fresh, correctly signed challenge for the RETIRED wallet must be rejected.
     with sessionmaker(bind=engine)() as session:
         resp_stale = service.create_challenge(
-            session, _identity(), WalletChallengeRequest(wallet_address=wallet_old.address, chain_id=CHAIN_ID)
+            session, _identity(sub), WalletChallengeRequest(wallet_address=wallet_old.address, chain_id=CHAIN_ID)
         )
     sig_stale = wallet_old.sign_message(encode_defunct(text=resp_stale.message)).signature.hex()
     with pytest.raises(ValueError, match="not an active participant"):
         with sessionmaker(bind=engine)() as session:
             service.verify_and_bind(
-                session, _identity(), WalletVerifyRequest(challenge_id=resp_stale.challenge_id, signature=sig_stale)
+                session, _identity(sub), WalletVerifyRequest(challenge_id=resp_stale.challenge_id, signature=sig_stale)
             )
 
     # The new wallet binds with the on-chain generation (2), same participant id.
     with sessionmaker(bind=engine)() as session:
         resp_new = service.create_challenge(
-            session, _identity(), WalletChallengeRequest(wallet_address=wallet_new.address, chain_id=CHAIN_ID)
+            session, _identity(sub), WalletChallengeRequest(wallet_address=wallet_new.address, chain_id=CHAIN_ID)
         )
     sig_new = wallet_new.sign_message(encode_defunct(text=resp_new.message)).signature.hex()
     with sessionmaker(bind=engine)() as session:
         binding_new = service.verify_and_bind(
-            session, _identity(), WalletVerifyRequest(challenge_id=resp_new.challenge_id, signature=sig_new)
+            session, _identity(sub), WalletVerifyRequest(challenge_id=resp_new.challenge_id, signature=sig_new)
         )
     assert binding_new.authorization_generation == 2
     assert binding_new.participant_id == pid
-    active = service.get_active_binding(TENANT, SUBJECT)
+    active = service.get_active_binding(TENANT, sub)
     assert active.wallet_address.lower() == wallet_new.address.lower()
     assert active.authorization_generation == 2
     engine.dispose()
@@ -574,6 +586,7 @@ def test_unproven_wallet_rejected_before_chain_reads(app_engine, seeded):
     engine = _new_engine(app_engine)
     service = _service(engine=engine, reader=reader)
     wallet = Account.create()
+    sub = _unique_sub()
     reader.set_participant(wallet.address, "0x" + "f0" * 32, 1, "AUDITOR", True)
 
     Session = sessionmaker(bind=engine)
@@ -582,7 +595,7 @@ def test_unproven_wallet_rejected_before_chain_reads(app_engine, seeded):
         with Session() as session:
             return service.create_challenge(
                 session,
-                _identity(sub=SUBJECT, institution=institution),
+                _identity(sub, institution=institution),
                 WalletChallengeRequest(wallet_address=wallet.address, chain_id=CHAIN_ID),
             )
 
@@ -597,7 +610,7 @@ def test_unproven_wallet_rejected_before_chain_reads(app_engine, seeded):
     with pytest.raises(ValueError, match="Signer address mismatch"):
         with Session() as session:
             service.verify_and_bind(
-                session, _identity(), WalletVerifyRequest(challenge_id=ch_a.challenge_id, signature=wrong_sig)
+                session, _identity(sub), WalletVerifyRequest(challenge_id=ch_a.challenge_id, signature=wrong_sig)
             )
     assert reader.read_count == 0
 
@@ -608,7 +621,7 @@ def test_unproven_wallet_rejected_before_chain_reads(app_engine, seeded):
         with Session() as session:
             service.verify_and_bind(
                 session,
-                _identity(sub=SUBJECT, institution=OTHER_TENANT),
+                _identity(sub, institution=OTHER_TENANT),
                 WalletVerifyRequest(challenge_id=ch_b.challenge_id, signature="0x" + "11" * 65),
             )
     assert reader.read_count == 0
@@ -618,7 +631,7 @@ def test_unproven_wallet_rejected_before_chain_reads(app_engine, seeded):
     sig = wallet.sign_message(encode_defunct(text=ch_c.message)).signature.hex()
     with Session() as session:
         binding = service.verify_and_bind(
-            session, _identity(), WalletVerifyRequest(challenge_id=ch_c.challenge_id, signature=sig)
+            session, _identity(sub), WalletVerifyRequest(challenge_id=ch_c.challenge_id, signature=sig)
         )
     assert binding.bound is True
     assert reader.read_count == 1
