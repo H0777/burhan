@@ -1816,13 +1816,23 @@ def check_gate(config_path: str,
             problems.append("evaluation seal run_id does not match the run "
                             "manifest experiment_id")
     recorded = manifest.get("gate_decision") or {}
-    if recorded.get("research_status") != outcome:
+    if not isinstance(recorded, dict) or \
+            recorded.get("research_status") != outcome:
         problems.append("recorded gate_decision.research_status does not "
                         "match the run outcome")
-    if outcome == RESEARCH_STATUS_PASSED and \
-            recorded.get("activation_allowed") is not True:
-        problems.append("a PASSED run manifest must record "
-                        "gate_decision.activation_allowed = true")
+    # NOTE: a (PASSED, activation_allowed=false) manifest is a VALID
+    # decision-level outcome (research gates pass, activation rule fails) —
+    # it maps to exit 1 below, not to the environment bucket.
+
+    # Post-hoc protocol retuning must be visible: the run binds the config
+    # hash recorded at evaluation time; a CURRENT protocol hash mismatch
+    # means the decision no longer binds.
+    if manifest.get("config_hash") != provenance["config_hash"]:
+        problems.append(
+            f"the run's recorded config hash {manifest.get('config_hash')} "
+            f"does not match the CURRENT protocol hash "
+            f"{provenance['config_hash']} — protocol.json was retuned after "
+            f"the run; the recorded decision no longer binds")
 
     artifact_rel = manifest.get("model_artifact_path") or MODEL_ARTIFACT_RELPATH
     artifact_path = ROOT_DIR / artifact_rel
@@ -1844,13 +1854,22 @@ def check_gate(config_path: str,
               "decision")
         return 2
 
-    candidate = EvaluationMetrics.from_metrics_dict(
-        manifest["metrics_by_model"]["hybrid_ensemble"])
-    baseline = EvaluationMetrics.from_metrics_dict(
-        manifest["metrics_by_model"]["rules_only"])
+    try:
+        candidate = EvaluationMetrics.from_metrics_dict(
+            manifest["metrics_by_model"]["hybrid_ensemble"])
+        baseline = EvaluationMetrics.from_metrics_dict(
+            manifest["metrics_by_model"]["rules_only"])
+    except (KeyError, TypeError, ValueError) as exc:
+        # a malformed PASSED/FAILED manifest is an environment problem
+        # (exit 2), never an unhandled crash masquerading as exit 1
+        print(f"[GATE] exit 2 — the run manifest does not carry the recorded "
+              f"per-model metrics needed to reproduce the decision ({exc!r})")
+        return 2
     decision = evaluate_gate(candidate, baseline, policy)
 
-    if recorded.get("activation_allowed") != decision.activation_allowed:
+    if recorded.get("research_status") != decision.research_status or \
+            bool(recorded.get("activation_allowed")) \
+            != decision.activation_allowed:
         print("[GATE] exit 2 — the recorded decision does not reproduce "
               "from the recorded metrics (possible drift)")
         return 2
@@ -1863,7 +1882,7 @@ def check_gate(config_path: str,
         print("[GATE] exit 0 — research gates PASSED and activation approved")
         return 0
     print("[GATE] exit 1 — the gate decision is negative (FAILED, or PASSED "
-          "without activation); the rules-only baseline remains operative")
+          "with activation denied); the rules-only baseline remains operative")
     return 1
 
 

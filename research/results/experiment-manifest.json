@@ -1,23 +1,68 @@
 {
-  "experiment_id": "EXP-AML-42-1792751398",
-  "dataset_hash": "0x2897cba193436940d95494df1c15d2434a77f6bca9fd53dd349476281d25fb8d",
-  "split_hash": "0xdb11fff4da2fd37e6ab3c05c336a0c87af3c42106d9cb8a4aea361dd744cef87",
-  "code_revision": "438af88",
-  "config_hash": "0x513e39c59c7d63df91e193b4a143e6bc28d7d23ca99c89808f8e28157bd8d316",
+  "experiment_id": "EXP-AML-42-1792909092",
+  "protocol_version": "1.1.0",
+  "dataset_hash": "0xda30ae6e6b0341566ece6ea9678140a6491a7364747eeff10185fd47f25321c7",
+  "code_revision": "73419ab",
+  "config_hash": "0x1f88314ae089032d9b131fc186b424375890458f7a0f468c67ecbf54b5a26762",
+  "config_path": "experiment-config.json",
+  "protocol_path": "protocol.json",
   "seed": 42,
   "policy_version": "DEMO-IQD-1",
   "engine_version": "2.0.0",
-  "model_hash": "0x9df3d433cf298ea3f7c4b92abf63ce599159330df5a6ab8a4d36d5817236306a",
-  "metrics": {
-    "precision": 0.9907,
-    "recall": 0.7698,
-    "f1_score": 0.8664,
-    "pr_auc": 0.8188,
-    "fpr_per_1000": 1.57
-  },
   "environment": {
     "python_version": "3.14.7",
+    "python_implementation": "CPython",
+    "numpy_version": "2.5.4",
     "scikit_learn_version": "1.9.1",
-    "os": "Windows 11"
+    "joblib_version": "1.6.0",
+    "os": "Windows 11",
+    "platform_machine": "AMD64"
+  },
+  "created_at": "2026-10-25T06:18:12.611057+00:00",
+  "dataset_nature": "synthetic",
+  "identifier_source": "generate_benchmark_dataset(seed=...) synthetic generator: record ids TX-BENCH-%06d, senders ACC-IQD-SND-%04d (NOT institutional data)",
+  "dataset_size": {
+    "requested": 10000,
+    "generated": 10000
+  },
+  "max_records": null,
+  "split_hash": "0x880a88ceaf262f3dbef52552177e29291efb6649ae38f4bdd4cf40ffe68e447e",
+  "split_manifest": {
+    "manifest_hash": "0x880a88ceaf262f3dbef52552177e29291efb6649ae38f4bdd4cf40ffe68e447e",
+    "accepted": false,
+    "record_counts": {
+      "train": 215,
+      "validation": 0,
+      "test": 120
+    },
+    "drop_summary": {
+      "TRAIN_PARTICIPANT_FUTURE_RECORD": 7855,
+      "PARTICIPANT_CROSSES_VALIDATION_TEST_BOUNDARY": 1810
+    }
+  },
+  "outcome": "INSUFFICIENT_DATA",
+  "gate_decision": {
+    "research_status": "INSUFFICIENT_DATA",
+    "activation_allowed": false,
+    "reasons": [
+      "strict temporal/participant-disjoint partitioning left no admissible evaluation splits: validation split has 0 records (< minimum 100); validation split lacks a required class (present labels: [])"
+    ],
+    "claim": "RESEARCH GATES NOT EVALUATED — INSUFFICIENT_DATA: strict temporal/participant-disjoint partitioning left no admissible evaluation splits: validation split has 0 records (< minimum 100); validation split lacks a required class (present labels: []). The acceptance gates were NOT evaluated and NO model is approved for activation; the rules-only baseline remains operative. This negative result is recorded as produced — neither a pass nor a model-failure verdict."
+  },
+  "insufficient_data": {
+    "reason": "validation split has 0 records (< minimum 100); validation split lacks a required class (present labels: [])",
+    "split_sizes": {
+      "train": 215,
+      "validation": 0,
+      "test": 120
+    },
+    "drop_summary": {
+      "TRAIN_PARTICIPANT_FUTURE_RECORD": 7855,
+      "PARTICIPANT_CROSSES_VALIDATION_TEST_BOUNDARY": 1810
+    },
+    "validation_errors": [
+      "validation split has 0 records (< minimum 100)",
+      "validation split lacks a required class (present labels: [])"
+    ]
   }
 }

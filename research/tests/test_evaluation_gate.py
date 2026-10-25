@@ -12,12 +12,17 @@ Pins:
   class refuses the gate instead of dividing silently);
 - the claim text is GENERATED from the decision — never a constant
   SUPPORTED string;
-- FPR display: 1.57 per 1,000 == 0.157%.
+- FPR display: 1.57 per 1,000 == 0.157%;
+- the ``check_gate`` CLI exit-code contract (0 / 1 / 2) against synthetic
+  run-manifest fixtures, including the decision-level (PASSED, activation
+  denied) -> exit 1 mapping and the environment bucket -> exit 2.
 
 RED phase: every test resolves the R18 symbols through the ``impl`` seam and
 fails with a clear "not implemented (R18 RED)" message until they land.
 """
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -302,3 +307,187 @@ def test_from_protocol_rejects_lowered_floors():
     loosened["acceptance_gates"]["max_fpr_per_1000"] = 500.0
     with pytest.raises(ValueError):
         from_protocol(loosened)
+
+
+# ---------------------------------------------------------------------------
+# check_gate exit-code contract (fix round 1) — synthetic manifest fixtures.
+# Exit 0 (PASSED + activation approved) is pinned with a synthetic manifest;
+# exit 1 (FAILED, or PASSED with activation denied — a decision-level
+# outcome) and exit 2 (INSUFFICIENT_DATA / environment) are pinned with
+# synthetic manifests; none of these touch the real results directory.
+# ---------------------------------------------------------------------------
+
+PROTOCOL_PATH = str(Path(run_experiments.ROOT_DIR) / "research" / "protocol.json")
+
+
+def _metrics_for(outcome_kind):
+    """Metric dicts whose evaluation reproduces the wanted decision kind."""
+    f = run_experiments.compute_eval_metrics
+    lat = [2.0] * 100
+    if outcome_kind == "passed_allowed":
+        # hybrid recall 0.9, FPR 0, AP 0.99 vs baseline recall 0.6, FPR 0
+        hybrid = f([1] * 10 + [0] * 90,
+                   [1] * 9 + [0] * 91,
+                   [0.95] * 9 + [0.85] + [0.05] * 90, lat)
+        rules = f([1] * 10 + [0] * 90,
+                  [1] * 6 + [0] * 94,
+                  [0.8] * 6 + [0.05] * 94, lat)
+        return "PASSED", True, hybrid, rules
+    if outcome_kind == "passed_denied":
+        # candidate identical to the baseline: no strict gain -> denied
+        same = f([1] * 10 + [0] * 90,
+                 [1] * 9 + [0] * 91,
+                 [0.95] * 9 + [0.85] + [0.05] * 90, lat)
+        return "PASSED", False, same, dict(same)
+    if outcome_kind == "failed":
+        # recall 0.8 < 0.85 floor -> research FAILED
+        hybrid = f([1] * 10 + [0] * 90,
+                   [1] * 8 + [0] * 92,
+                   [0.95] * 8 + [0.85] + [0.05] * 91, lat)
+        rules = f([1] * 10 + [0] * 90,
+                  [1] * 6 + [0] * 94,
+                  [0.8] * 6 + [0.05] * 94, lat)
+        return "FAILED", False, hybrid, rules
+    raise ValueError(outcome_kind)
+
+
+def _synthetic_run_dir(tmp_path, outcome_kind, *, config_hash=None,
+                       seal_tamper=False, drop_metrics=False,
+                       artifact_bytes=b"evaluated-artifact-bytes"):
+    """Builds a synthetic run directory with a run manifest whose seal,
+    fingerprints and per-model metrics reproduce the wanted decision.
+    ``artifact_bytes`` is what is DEPLOYED at the artifact path; the
+    manifest/seal always pin the EVALUATED bytes, so passing different
+    ``artifact_bytes`` reproduces a deployment mismatch."""
+    artifact = tmp_path / "fraud_model.joblib"
+    artifact.write_bytes(artifact_bytes)
+    evaluated_bytes = b"evaluated-artifact-bytes"
+    model_hash = "0x" + hashlib.sha256(evaluated_bytes).hexdigest()
+    split_hash = "0x" + "5" * 64
+    _, provenance = run_experiments.load_experiment_config(PROTOCOL_PATH)
+    effective_config_hash = config_hash or provenance["config_hash"]
+
+    status, allowed, hybrid, rules = _metrics_for(outcome_kind)
+    seal = run_experiments.build_evaluation_seal(
+        run_id="EXP-AML-42-GATEFIX", labels=[1] * 10 + [0] * 90,
+        predictions=[1] * 9 + [0] * 91,
+        config_hash=effective_config_hash, split_hash=split_hash,
+        model_hash=model_hash)
+    if seal_tamper:
+        seal["labels_sha256"] = "0x" + "0" * 64
+
+    doc = {
+        "experiment_id": "EXP-AML-42-GATEFIX",
+        "outcome": status,
+        "model_id": "hybrid_ensemble",
+        "model_hash": model_hash,
+        "split_hash": split_hash,
+        "config_hash": effective_config_hash,
+        # an absolute artifact path is honored by check_gate (pathlib join
+        # with an absolute path replaces the root)
+        "model_artifact_path": str(artifact),
+        "gate_decision": {
+            "research_status": status,
+            "activation_allowed": allowed,
+            "reasons": [],
+            "claim": "synthetic fixture claim",
+        },
+        "evaluation_seal": seal,
+        "metrics_by_model": {"rules_only": rules,
+                             "ml_isolation_forest": rules,
+                             "hybrid_ensemble": hybrid},
+    }
+    if drop_metrics:
+        del doc["metrics_by_model"]
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "run-manifest.json").write_text(
+        json.dumps(doc, indent=2), encoding="utf-8")
+    return str(run_dir)
+
+
+def test_check_gate_exit_0_passed_and_activation_approved(tmp_path):
+    check_gate = run_experiments.check_gate
+    run_dir = _synthetic_run_dir(tmp_path, "passed_allowed")
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 0
+
+
+def test_check_gate_exit_1_failed_manifest(tmp_path):
+    check_gate = run_experiments.check_gate
+    run_dir = _synthetic_run_dir(tmp_path, "failed")
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 1
+
+
+def test_check_gate_exit_1_passed_but_activation_denied(tmp_path):
+    """(PASSED, activation_allowed=false) is a DECISION-level outcome:
+    it must map to exit 1, never to the exit 2 environment bucket."""
+    check_gate = run_experiments.check_gate
+    run_dir = _synthetic_run_dir(tmp_path, "passed_denied")
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 1
+
+
+def test_check_gate_exit_2_insufficient_data_manifest(tmp_path):
+    check_gate = run_experiments.check_gate
+    run_dir = tmp_path / "run-insufficient"
+    run_dir.mkdir()
+    (run_dir / "run-manifest.json").write_text(json.dumps({
+        "experiment_id": "EXP-AML-42-INSUFFICIENT",
+        "outcome": "INSUFFICIENT_DATA",
+        "config_hash": "0x" + "c" * 64,
+        "split_hash": "0x" + "5" * 64,
+        "insufficient_data": {"reason": "validation split has 0 records",
+                              "split_sizes": {}, "drop_summary": {}},
+    }), encoding="utf-8")
+    assert check_gate(PROTOCOL_PATH, run_dir=str(run_dir)) == 2
+
+
+def test_check_gate_exit_2_missing_manifest(tmp_path):
+    check_gate = run_experiments.check_gate
+    empty = tmp_path / "run-empty"
+    empty.mkdir()
+    assert check_gate(PROTOCOL_PATH, run_dir=str(empty)) == 2
+
+
+def test_check_gate_exit_2_tampered_seal(tmp_path):
+    check_gate = run_experiments.check_gate
+    run_dir = _synthetic_run_dir(tmp_path, "passed_allowed", seal_tamper=True)
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 2
+
+
+def test_check_gate_exit_2_artifact_hash_mismatch(tmp_path):
+    check_gate = run_experiments.check_gate
+    run_dir = _synthetic_run_dir(tmp_path, "passed_allowed",
+                                 artifact_bytes=b"different-deployed-bytes")
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 2
+
+
+def test_check_gate_exit_2_malformed_manifest_without_metrics(tmp_path):
+    """A malformed PASSED manifest (no per-model metrics) is an environment
+    problem (exit 2), not an unhandled crash masquerading as exit 1."""
+    check_gate = run_experiments.check_gate
+    run_dir = _synthetic_run_dir(tmp_path, "passed_allowed", drop_metrics=True)
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 2
+
+
+def test_check_gate_exit_2_stale_protocol_config_hash(tmp_path):
+    """Post-hoc protocol retuning is visible: a manifest bound to an older
+    config hash no longer reproduces against the CURRENT protocol (exit 2)."""
+    check_gate = run_experiments.check_gate
+    stale_hash = "0x" + "e" * 64
+    run_dir = _synthetic_run_dir(tmp_path, "passed_allowed",
+                                 config_hash=stale_hash)
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 2
+
+
+def test_check_gate_exit_2_recorded_decision_does_not_reproduce(tmp_path):
+    """The recorded decision is cross-checked against the reproduced one on
+    BOTH research_status and activation_allowed."""
+    check_gate = run_experiments.check_gate
+    # recorded as approved, but the metrics reproduce a denied decision
+    run_dir = _synthetic_run_dir(tmp_path, "passed_denied")
+    manifest_path = Path(run_dir) / "run-manifest.json"
+    doc = json.loads(manifest_path.read_text(encoding="utf-8"))
+    doc["gate_decision"]["activation_allowed"] = True
+    manifest_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    assert check_gate(PROTOCOL_PATH, run_dir=run_dir) == 2

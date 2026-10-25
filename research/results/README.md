@@ -93,6 +93,9 @@ Python 3.14.7 (CPython), NumPy 2.5.4, scikit-learn 1.9.1, joblib 1.6.0, Windows 
 
 ## Run artifacts
 
+- `experiment-manifest.json` — fixed-path mirror of the latest run manifest
+  (`EXP-AML-42-1792909092`), regenerated in R18 fix round 1 so no tracked
+  artifact contradicts the updated experiment-manifest schema.
 - `runs/EXP-AML-42-1792909092/` — R18 full-config run (10,000 records): INSUFFICIENT_DATA
   with `gate_decision` recorded; `--check-gate` exit 2.
 - `runs/EXP-AML-42-1792875674/` — R17 short run (1,200 records): INSUFFICIENT_DATA
