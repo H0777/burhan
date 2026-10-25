@@ -1,14 +1,29 @@
 """
-Institutional Case Lifecycle and Four-Eyes Governance Service (T16)
-Specification §7 (R01, R08, R09, R15)
+Institutional Case Lifecycle and Four-Eyes Governance Service (T16, R12)
+Specification §7, §8 (R01, R08, R09, R15)
 Implements table-driven case state machine, Four-Eyes principle, Separation of Duties (SoD),
-optimistic locking, and append-only audit event logging.
+optimistic locking via SQL compare-and-swap, append-only audit event logging, semantic
+idempotency (scoped key + full-body digest, TTL 24h) and keyset cursor pagination.
+
+R12 concurrency contract: the state transition winner is decided ONLY by the atomic
+UPDATE ... WHERE institution_id/case_id/version[ AND status] in the repository — there
+is deliberately NO Python-side version check here. The case row, its CaseEvent and the
+idempotency reservation are written in ONE transaction (the caller's tenant_transaction),
+so a failure rolls back all three together.
+
+R12 idempotency contract: the idempotency key scope is
+institution + sub + HTTP method + path + key (the (institution_id, key) unique
+constraint reserves it atomically), and the stored request_hash is a canonical-JSON
+digest over ALL semantic body fields — a changed description/severity/new_assignee_sub
+under the same key raises IdempotencyConflictError (HTTP 409) instead of replaying a
+stale success. Entries live for 24h; expired entries are never replayed.
 """
 
+import base64
 import uuid
 import json
 import hashlib
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
@@ -23,8 +38,17 @@ from app.schemas.cases import (
 )
 from app.repositories import case_repository
 
+IDEMPOTENCY_TTL = timedelta(hours=24)
+
 
 class CaseServiceError(Exception):
+    """Base: mapped to HTTP 400 by the routes unless a subclass matches first."""
+    pass
+
+
+class IdempotencyConflictError(CaseServiceError):
+    """Same idempotency key reused with a DIFFERENT semantic payload (or racing a
+    concurrent request under the same key): HTTP 409, never a stale success."""
     pass
 
 
@@ -48,10 +72,152 @@ class CaseNotFoundError(CaseServiceError):
     pass
 
 
+def _canonical_json(payload: Any) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _canonical_digest(payload: Any) -> str:
+    """Digest over ALL semantic fields of a request body (canonical JSON)."""
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _idempotency_scope_key(institution_id: str, sub: str, scope: Tuple[str, str], raw_key: str) -> str:
+    """
+    The stored `key` for an idempotency reservation: a digest of
+    institution + sub + method + path + client key. Combined with the
+    (institution_id, key) unique constraint this reserves the key exactly per
+    the spec scope: institution+sub+method+path+key.
+    """
+    method, path = scope
+    material = "\x1f".join([institution_id, sub, method or "", path or "", raw_key])
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Cursor codec: opaque, bound to institution + filter set + keyset position
+# ---------------------------------------------------------------------------
+
+
+def _encode_case_list_cursor(institution_id: str, filters: Dict[str, Optional[str]], last_key: Tuple[datetime, str]) -> str:
+    payload = {
+        "i": institution_id,
+        "f": {k: v for k, v in (filters or {}).items() if v},
+        "c": [last_key[0].isoformat(), last_key[1]],
+    }
+    raw = _canonical_json(payload).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_case_list_cursor(cursor: str, institution_id: str, filters: Dict[str, Optional[str]]) -> Tuple[datetime, str]:
+    """Decode and BIND the cursor: a cursor minted for another institution or for a
+    different filter set is rejected (400) — it must never widen a query."""
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii"))
+        payload = json.loads(raw.decode("utf-8"))
+        cursor_inst = payload["i"]
+        cursor_filters = {k: v for k, v in (payload.get("f") or {}).items() if v}
+        ts_iso, last_id = payload["c"]
+        last_ts = datetime.fromisoformat(ts_iso)
+        if not isinstance(last_id, str) or not last_id:
+            raise ValueError("cursor id must be a non-empty string")
+    except CaseServiceError:
+        raise
+    except Exception as exc:
+        raise CaseServiceError("Invalid pagination cursor") from exc
+
+    if cursor_inst != institution_id:
+        raise CaseServiceError("Pagination cursor belongs to a different institution")
+    incoming_filters = {k: v for k, v in (filters or {}).items() if v}
+    if cursor_filters != incoming_filters:
+        raise CaseServiceError("Pagination cursor does not match the requested filters")
+    return (last_ts, last_id)
+
+
 class CaseService:
     @staticmethod
     def _get_role_str(role: Any) -> str:
         return role.value if hasattr(role, "value") else str(role)
+
+    @staticmethod
+    def _scope(request_scope: Optional[Tuple[str, str]]) -> Tuple[str, str]:
+        if not request_scope:
+            return ("", "")
+        return (str(request_scope[0] or ""), str(request_scope[1] or ""))
+
+    # -- idempotency helpers ------------------------------------------------
+
+    def _replay_idempotent(
+        self,
+        session: Session,
+        institution_id: str,
+        scope_key: str,
+        digest: str,
+        raw_key: str,
+    ) -> Optional[CaseResponse]:
+        """Return the stored response for an unexpired key with the SAME semantic
+        digest. Changed digest -> IdempotencyConflictError (409). Expired entries are
+        removed so the request re-executes (TTL = 24h)."""
+        now = datetime.now(timezone.utc)
+        ik = session.execute(
+            select(IdempotencyKey).where(
+                IdempotencyKey.institution_id == institution_id,
+                IdempotencyKey.key == scope_key,
+            )
+        ).scalars().first()
+        if ik is None:
+            return None
+        if ik.expires_at is not None and ik.expires_at <= now:
+            session.delete(ik)
+            session.flush()
+            return None
+        if (ik.request_hash or "") != digest:
+            raise IdempotencyConflictError(
+                f"Idempotency key '{raw_key}' was already used with a different payload"
+            )
+        if ik.response_json:
+            return CaseResponse.model_validate_json(ik.response_json)
+        # A reservation without a stored response cannot exist across committed
+        # transactions (outcome and reservation share one transaction); treat as
+        # expired and re-execute.
+        session.delete(ik)
+        session.flush()
+        return None
+
+    def _reserve_idempotent(
+        self,
+        session: Session,
+        institution_id: str,
+        scope_key: str,
+        digest: str,
+        response: CaseResponse,
+        status_code: int,
+        raw_key: str,
+    ) -> None:
+        """Insert the idempotency reservation together with the outcome. The
+        (institution_id, key) unique constraint is the arbiter: a concurrent request
+        under the same scope key loses the race here and gets a 409."""
+        ik = IdempotencyKey(
+            id=f"ik_{uuid.uuid4().hex[:16]}",
+            institution_id=institution_id,
+            key=scope_key,
+            request_hash=digest,
+            response_json=response.model_dump_json(),
+            status_code=status_code,
+            expires_at=datetime.now(timezone.utc) + IDEMPOTENCY_TTL,
+        )
+        session.add(ik)
+        try:
+            session.flush()
+        except Exception as exc:
+            from sqlalchemy.exc import IntegrityError
+
+            if isinstance(exc, IntegrityError):
+                raise IdempotencyConflictError(
+                    f"Idempotency key '{raw_key}' is being processed concurrently"
+                ) from exc
+            raise
+
+    # -- commands ------------------------------------------------------------
 
     def create_case(
         self,
@@ -63,6 +229,7 @@ class CaseService:
         severity: str = "MEDIUM",
         assigned_to_sub: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        request_scope: Optional[Tuple[str, str]] = None,
     ) -> CaseResponse:
         role_str = self._get_role_str(identity.role)
         if role_str == "REGULATOR":
@@ -70,20 +237,26 @@ class CaseService:
 
         institution_id = identity.institution_id
 
-        # Check idempotency
-        req_hash = hashlib.sha256(f"{institution_id}:{case_number}:{title}".encode("utf-8")).hexdigest()
         if idempotency_key:
-            ik = session.execute(
-                select(IdempotencyKey).where(
-                    IdempotencyKey.institution_id == institution_id,
-                    IdempotencyKey.key == idempotency_key,
-                )
-            ).scalars().first()
-            if ik:
-                if ik.request_hash != req_hash:
-                    raise CaseServiceError(f"Idempotency key '{idempotency_key}' conflict with different payload")
-                if ik.response_json:
-                    return CaseResponse.model_validate_json(ik.response_json)
+            scope_key = _idempotency_scope_key(
+                institution_id, identity.sub, self._scope(request_scope), idempotency_key
+            )
+            # Digest over ALL semantic body fields — description and severity included.
+            digest = _canonical_digest(
+                {
+                    "case_number": case_number,
+                    "title": title,
+                    "description": description or "",
+                    "severity": severity,
+                    "assigned_to_sub": assigned_to_sub,
+                }
+            )
+            replayed = self._replay_idempotent(session, institution_id, scope_key, digest, idempotency_key)
+            if replayed is not None:
+                return replayed
+        else:
+            digest = None
+            scope_key = None
 
         case = case_repository.create_case(
             session=session,
@@ -110,19 +283,12 @@ class CaseService:
         )
 
         if idempotency_key:
-            ik = IdempotencyKey(
-                id=f"ik_{uuid.uuid4().hex[:16]}",
-                institution_id=institution_id,
-                key=idempotency_key,
-                request_hash=req_hash,
-                response_json=resp.model_dump_json(),
-                status_code=201,
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-            )
-            session.add(ik)
+            self._reserve_idempotent(session, institution_id, scope_key, digest, resp, 201, idempotency_key)
 
         session.flush()
         return resp
+
+    # -- queries ---------------------------------------------------------------
 
     def get_case(self, session: Session, identity: Identity, case_id: str) -> CaseDetailResponse:
         institution_id = identity.institution_id
@@ -132,8 +298,8 @@ class CaseService:
 
         events = case_repository.get_case_events(session, institution_id, case_id)
 
-        evidence_count = session.execute(
-            select(EvidenceObject).where(
+        evidence_rows = session.execute(
+            select(EvidenceObject.id).where(
                 EvidenceObject.institution_id == institution_id,
                 EvidenceObject.case_id == case_id,
             )
@@ -165,7 +331,7 @@ class CaseService:
                 )
                 for e in events
             ],
-            evidence_count=len(evidence_count),
+            evidence_count=len(evidence_rows),
         )
 
     def list_cases(
@@ -174,9 +340,26 @@ class CaseService:
         identity: Identity,
         limit: int = 50,
         cursor: Optional[str] = None,
+        status: Optional[str] = None,
+        severity: Optional[str] = None,
     ) -> CaseListResponse:
+        """Keyset pagination on (created_at DESC, id DESC). The cursor is bound to
+        this institution and to the active filter set; next_cursor is produced ONLY
+        when a further row exists (limit+1 was fetched)."""
         institution_id = identity.institution_id
-        cases = case_repository.list_cases(session, institution_id, limit=limit, cursor=cursor)
+        filters: Dict[str, Optional[str]] = {"status": status, "severity": severity}
+        cursor_key = (
+            _decode_case_list_cursor(cursor, institution_id, filters) if cursor else None
+        )
+
+        rows, has_more = case_repository.list_cases(
+            session,
+            institution_id,
+            limit=limit,
+            cursor=cursor_key,
+            status=status,
+            severity=severity,
+        )
 
         items = [
             CaseResponse(
@@ -192,9 +375,17 @@ class CaseService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
             )
-            for c in cases
+            for c in rows
         ]
-        return CaseListResponse(items=items, next_cursor=None, total=len(items))
+        next_cursor = None
+        if has_more and items:
+            last = rows[-1]
+            next_cursor = _encode_case_list_cursor(
+                institution_id, filters, (last.created_at, last.id)
+            )
+        return CaseListResponse(items=items, next_cursor=next_cursor, total=len(items))
+
+    # -- state machine ----------------------------------------------------------
 
     def transition_case(
         self,
@@ -206,6 +397,7 @@ class CaseService:
         reason: Optional[str] = "",
         new_assignee_sub: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        request_scope: Optional[Tuple[str, str]] = None,
     ) -> CaseResponse:
         role_str = self._get_role_str(identity.role)
         actor_sub = identity.sub
@@ -214,38 +406,38 @@ class CaseService:
         if role_str == "REGULATOR":
             raise UnauthorizedRoleError("REGULATOR role has read-only audit access and cannot transition cases")
 
-        # Idempotency check
-        req_hash = hashlib.sha256(
-            f"{institution_id}:{case_id}:{action}:{expected_version}:{reason}".encode("utf-8")
-        ).hexdigest()
         if idempotency_key:
-            ik = session.execute(
-                select(IdempotencyKey).where(
-                    IdempotencyKey.institution_id == institution_id,
-                    IdempotencyKey.key == idempotency_key,
-                )
-            ).scalars().first()
-            if ik:
-                if ik.request_hash != req_hash:
-                    raise CaseServiceError(f"Idempotency key '{idempotency_key}' conflict with different payload")
-                if ik.response_json:
-                    return CaseResponse.model_validate_json(ik.response_json)
+            scope_key = _idempotency_scope_key(
+                institution_id, identity.sub, self._scope(request_scope), idempotency_key
+            )
+            # Digest over ALL semantic fields of the transition — the path-scoped
+            # case id, action, expected_version, reason AND new_assignee_sub.
+            digest = _canonical_digest(
+                {
+                    "case_id": case_id,
+                    "action": action,
+                    "expected_version": expected_version,
+                    "reason": reason or "",
+                    "new_assignee_sub": new_assignee_sub,
+                }
+            )
+            replayed = self._replay_idempotent(session, institution_id, scope_key, digest, idempotency_key)
+            if replayed is not None:
+                return replayed
+        else:
+            digest = None
+            scope_key = None
 
         case = case_repository.get_case(session, institution_id, case_id)
         if not case:
             raise CaseNotFoundError(f"Case '{case_id}' not found for institution '{institution_id}'")
-
-        # Optimistic locking check
-        if case.version != expected_version:
-            raise VersionConflictError(
-                f"Version conflict on case '{case_id}': expected {expected_version}, current is {case.version}"
-            )
 
         current_status = case.status
         new_status = current_status
         is_admin = role_str == "SUPER_ADMIN"
         is_auditor = role_str in ("AUDITOR", "SUPER_ADMIN")
         is_operator = role_str in ("OPERATOR", "SUPER_ADMIN")
+        cas_updates: Dict[str, Any] = {}
 
         # -------------------------------------------------------------
         # STATE MACHINE TRANSITIONS (Spec §7 Table)
@@ -255,7 +447,7 @@ class CaseService:
                 raise UnauthorizedRoleError("Not authorized to assign case")
             if not new_assignee_sub:
                 raise ValueError("new_assignee_sub is required for assign action")
-            case.assigned_to_sub = new_assignee_sub
+            cas_updates["assigned_to_sub"] = new_assignee_sub
 
         elif action == "start_review":
             if current_status != "OPEN":
@@ -318,7 +510,7 @@ class CaseService:
             if not reason:
                 raise ValueError("Reason is required when returning an escalated case to review")
             if new_assignee_sub:
-                case.assigned_to_sub = new_assignee_sub
+                cas_updates["assigned_to_sub"] = new_assignee_sub
             new_status = "IN_REVIEW"
 
         elif action == "close":
@@ -336,35 +528,37 @@ class CaseService:
             if not reason:
                 raise ValueError("Reason is required when reopening a closed case")
             if new_assignee_sub:
-                case.assigned_to_sub = new_assignee_sub
+                cas_updates["assigned_to_sub"] = new_assignee_sub
             new_status = "IN_REVIEW"
 
         else:
             raise InvalidTransitionError(f"Unknown case action '{action}'")
 
-        # Update case
-        old_status = case.status
-        case.status = new_status
-        case.version += 1
-        case.updated_at = datetime.now(timezone.utc)
-
-        # Record append-only event
-        event = CaseEvent(
-            id=f"ce_{uuid.uuid4().hex[:16]}",
-            case_id=case.id,
-            institution_id=institution_id,
-            event_type=action,
-            actor_sub=actor_sub,
-            payload_json=json.dumps({
-                "from_status": old_status,
-                "to_status": new_status,
-                "action": action,
-                "reason": reason or "",
-                "assignee": case.assigned_to_sub,
-                "version": case.version,
-            }),
-        )
-        session.add(event)
+        # -------------------------------------------------------------
+        # SQL COMPARE-AND-SWAP (R12): the ONLY concurrency gate. The UPDATE,
+        # the append-only event and the idempotency reservation below share
+        # the caller's single transaction.
+        # -------------------------------------------------------------
+        try:
+            case = case_repository.update_case_status(
+                session,
+                institution_id,
+                case_id,
+                expected_version,
+                new_status,
+                cas_updates or None,
+                expected_status=current_status,
+                actor_sub=actor_sub,
+                reason=reason or "",
+                action_type=action,
+                event_payload={
+                    "assignee": cas_updates.get("assigned_to_sub", case.assigned_to_sub),
+                },
+            )
+        except case_repository.CaseVersionConflict as exc:
+            raise VersionConflictError(str(exc)) from exc
+        except case_repository.CaseNotFoundError as exc:
+            raise CaseNotFoundError(str(exc)) from exc
 
         resp = CaseResponse(
             id=case.id,
@@ -381,16 +575,7 @@ class CaseService:
         )
 
         if idempotency_key:
-            ik = IdempotencyKey(
-                id=f"ik_{uuid.uuid4().hex[:16]}",
-                institution_id=institution_id,
-                key=idempotency_key,
-                request_hash=req_hash,
-                response_json=resp.model_dump_json(),
-                status_code=200,
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-            )
-            session.add(ik)
+            self._reserve_idempotent(session, institution_id, scope_key, digest, resp, 200, idempotency_key)
 
         session.flush()
         return resp
