@@ -800,3 +800,92 @@ def test_api_challenge_strict_validation(client, jwks_provider):
         headers=auth_headers,
     )
     assert res.status_code == 422
+
+
+# -------------------------------------------------------------
+# 6. On-chain authorization before sensitive writes (license read)
+# -------------------------------------------------------------
+
+def test_license_read_failure_answers_503_never_browser_claims(identity_db, jwks_provider, oidc_verifier):
+    """require_on_chain_authorization: when the on-chain authorization
+    (license) read fails, a sensitive write answers 503 — the browser-presented
+    claims are never trusted instead. A STALE on-chain generation answers 403."""
+    from fastapi import Depends
+
+    from app.routes.v2.identity import require_on_chain_authorization
+
+    class _BrokenReader:
+        def get_participant(self, wallet_address):
+            raise RuntimeError("RPC connection refused")
+
+    class _StaleReader:
+        def get_participant(self, wallet_address):
+            from app.security.wallet_binding import ParticipantOnChain
+            return ParticipantOnChain(
+                participant_id="0x" + "5" * 64, generation=99, role="AUDITOR", active=True
+            )
+
+    engine = identity_db.kw["bind"]
+    with identity_db() as session:
+        session.add(Institution(id=INSTITUTION, name="Central Bank of Iraq"))
+        session.add(
+            Membership(
+                id="mem_secure", institution_id=INSTITUTION, sub="usr-secure",
+                role="AUDITOR", is_active=True,
+            )
+        )
+        session.commit()
+
+    def _svc(reader):
+        service = WalletBindingService(
+            repository=InMemoryWalletBindingRepo(),
+            domain="iraq-aml-audit.cbi.iq",
+            default_chain_id=31337,
+            ttl_seconds=300,
+            chain_reader=reader,
+        )
+        service.repo.save_binding(
+            None,
+            BindingRecord(
+                institution_id=INSTITUTION,
+                sub="usr-secure",
+                wallet_address="0x" + "6" * 40,
+                participant_id="0x" + "5" * 64,
+                role=RoleEnum.AUDITOR,
+                authorization_generation=3,
+                bound_at=datetime.now(timezone.utc),
+            ),
+        )
+        return service
+
+    app = FastAPI()
+    app.include_router(identity_router, prefix="/api/v2")
+
+    @app.get("/api/v2/secure-write")
+    async def secure_write(identity: Identity = Depends(require_on_chain_authorization())):
+        return {"ok": True}
+
+    token = jwks_provider.create_signed_token({
+        "sub": "usr-secure", "institution_id": INSTITUTION, "role": "AUDITOR",
+    })
+    headers = {"Authorization": f"Bearer {token}"}
+
+    set_engine(engine)
+    try:
+        set_oidc_verifier(oidc_verifier)
+        set_wallet_service(_svc(_BrokenReader()))
+        with TestClient(app) as broken_client:
+            res = broken_client.get("/api/v2/secure-write", headers=headers)
+            assert res.status_code == 503, (
+                f"license-read failure must answer 503, got {res.status_code}: {res.text}"
+            )
+
+        set_wallet_service(_svc(_StaleReader()))
+        with TestClient(app) as stale_client:
+            res2 = stale_client.get("/api/v2/secure-write", headers=headers)
+            assert res2.status_code == 403
+            assert "generation" in res2.json()["detail"].lower()
+    finally:
+        set_oidc_verifier(None)
+        set_wallet_service(None)
+        set_engine(None)
