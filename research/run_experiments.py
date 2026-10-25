@@ -23,6 +23,7 @@ ordered split list (never truncated to the first 50 IDs).
 import os
 import sys
 import json
+import math
 import time
 import random
 import hashlib
@@ -133,6 +134,601 @@ def collect_environment() -> Dict[str, str]:
         "os": f"{platform.system()} {platform.release()}",
         "platform_machine": platform.machine(),
     }
+
+
+# ---------------------------------------------------------------------------
+# R18: computed metrics, evaluation policy, and the fail-able activation gate
+# (spec §9). Research statuses are PASSED | FAILED | INSUFFICIENT_DATA; the
+# claim text is GENERATED from the decision — never a constant SUPPORTED.
+# ---------------------------------------------------------------------------
+
+RESEARCH_STATUS_PASSED = "PASSED"
+RESEARCH_STATUS_FAILED = "FAILED"
+RESEARCH_STATUS_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+RESEARCH_STATUSES = (RESEARCH_STATUS_PASSED, RESEARCH_STATUS_FAILED,
+                     RESEARCH_STATUS_INSUFFICIENT_DATA)
+
+EVALUATION_SEAL_SCHEMA_VERSION = "evaluation-seal/1"
+
+# Spec §9 floors/ceilings — hard minima: a protocol may tighten them, never
+# loosen them. 0.85 recall and the FPR ceiling are NEVER lowered to close a
+# task.
+GATE_FLOOR_MIN_RECALL = 0.85
+GATE_CEILING_MAX_FPR_PER_1000 = 50.0
+GATE_FLOOR_MIN_PR_AUC = 0.80
+GATE_CEILING_MAX_LATENCY_P95_MS = 25.0
+_GATE_EPS = 1e-9
+
+
+def _canonical_json_bytes(doc: Any) -> bytes:
+    return json.dumps(doc, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def wilson_ci95(successes: int, total: int) -> List[float]:
+    """95% Wilson score interval for a binomial proportion — pure Python,
+    deterministic, no library dependency. An empty sample yields the full
+    [0, 1] interval (maximum honesty about knowing nothing)."""
+    if total <= 0:
+        return [0.0, 1.0]
+    z = 1.959963984540054  # two-sided 95% normal quantile
+    p = successes / total
+    denom = 1.0 + z * z / total
+    center = (p + z * z / (2.0 * total)) / denom
+    half = (z * math.sqrt(p * (1.0 - p) / total
+                          + z * z / (4.0 * total * total))) / denom
+    return [max(0.0, center - half), min(1.0, center + half)]
+
+
+def compute_average_precision(y_true: List[int], y_scores: List[float]) -> float:
+    """Average precision (AP) over the precision–recall curve — the quantity
+    the runner reports as ``pr_auc`` (and never under another metric's name).
+
+    Score ties are grouped into single threshold blocks, so the result is
+    invariant under any permutation of the input order. Verified against
+    scikit-learn's ``average_precision_score`` in research/tests/test_metrics.py.
+    """
+    n = len(y_true)
+    if n != len(y_scores):
+        raise ValueError("y_true and y_scores must have identical length")
+    total_pos = sum(1 for y in y_true if y == 1)
+    if n == 0 or total_pos == 0:
+        return 0.0
+
+    paired = sorted(zip(y_scores, y_true), key=lambda p: p[0], reverse=True)
+    ap = 0.0
+    accum_tp = 0
+    accum_fp = 0
+    prev_recall = 0.0
+    i = 0
+    while i < n:
+        block_score = paired[i][0]
+        j = i
+        while j < n and paired[j][0] == block_score:
+            if paired[j][1] == 1:
+                accum_tp += 1
+            else:
+                accum_fp += 1
+            j += 1
+        recall = accum_tp / total_pos
+        precision = accum_tp / (accum_tp + accum_fp)
+        ap += (recall - prev_recall) * precision
+        prev_recall = recall
+        i = j
+    return min(1.0, max(0.0, ap))
+
+
+def compute_eval_metrics(y_true: List[int],
+                         y_pred: List[int],
+                         y_scores: List[float],
+                         latencies_ms: Optional[List[float]] = None
+                         ) -> Dict[str, Any]:
+    """R18 metrics computation (used by the runner instead of the legacy T19
+    dict). Outputs the confusion matrix, class completeness, tie-grouped
+    average precision (``pr_auc``), FPR as a ratio AND per 1,000, sample
+    sizes, and 95% Wilson confidence intervals.
+
+    Zero-denominator conventions — never a fabricated success:
+      - precision with tp+fp == 0  -> 0.0 (no positive predictions is not precision)
+      - recall    with tp+fn == 0  -> 0.0
+      - FPR       with fp+tn == 0  -> None (NOT 0.0); ``has_negatives`` is
+        False so the gate refuses instead of dividing silently.
+    """
+    if len(y_true) != len(y_pred) or len(y_true) != len(y_scores):
+        raise ValueError("y_true, y_pred, and y_scores must have identical length")
+
+    n = len(y_true)
+    tp = fp = fn = tn = 0
+    for yt, yp in zip(y_true, y_pred):
+        if yt == 1 and yp == 1:
+            tp += 1
+        elif yt == 0 and yp == 1:
+            fp += 1
+        elif yt == 1 and yp == 0:
+            fn += 1
+        elif yt == 0 and yp == 0:
+            tn += 1
+
+    n_positives = tp + fn
+    n_negatives = fp + tn
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2 * precision * recall) / (precision + recall) \
+        if (precision + recall) > 0 else 0.0
+    fpr_ratio = (fp / (fp + tn)) if (fp + tn) > 0 else None
+    pr_auc = compute_average_precision(y_true, y_scores)
+
+    p95_latency = 0.0
+    if latencies_ms:
+        sorted_lat = sorted(latencies_ms)
+        idx = int(math.ceil(0.95 * len(sorted_lat))) - 1
+        p95_latency = round(sorted_lat[max(0, idx)], 2)
+
+    return {
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1_score": round(f1, 4),
+        # Average precision (AP) on the PR curve, reported under its own name.
+        "pr_auc": round(pr_auc, 4),
+        "fpr_ratio": fpr_ratio,
+        "fpr_per_1000": None if fpr_ratio is None
+        else round(fpr_ratio * 1000.0, 3),
+        "latency_p95_ms": p95_latency,
+        "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+        "confusion": {"tp": tp, "fp": fp, "fn": fn, "tn": tn},
+        "n_samples": n,
+        "n_positives": n_positives,
+        "n_negatives": n_negatives,
+        "has_positives": n_positives > 0,
+        "has_negatives": n_negatives > 0,
+        "ci95": {
+            "precision": wilson_ci95(tp, tp + fp),
+            "recall": wilson_ci95(tp, tp + fn),
+            "fpr": wilson_ci95(fp, fp + tn),
+        },
+    }
+
+
+def format_fpr(fpr_ratio: Optional[float]) -> str:
+    """One FPR quantity, two units: ``1.57/1000 (0.157%)`` — the per-1,000
+    display and the percentage are the same number by construction."""
+    if fpr_ratio is None:
+        return "n/a/1000 (not computable)"
+    return f"{fpr_ratio * 1000.0:.2f}/1000 ({fpr_ratio * 100.0:.3f}%)"
+
+
+@dataclass(frozen=True)
+class EvaluationMetrics:
+    """Recorded evaluation metrics for one configuration on one test split.
+    The gate consumes these RECORDED values; the confusion counts and Wilson
+    intervals are reporting context produced by compute_eval_metrics."""
+    precision: float
+    recall: float
+    f1_score: float
+    pr_auc: float                    # average precision (AP), by name
+    fpr_ratio: Optional[float]       # 0..1; None = not computable
+    latency_p95_ms: float
+    n_samples: int
+    n_positives: int
+    n_negatives: int
+    confusion: Optional[Dict[str, int]] = None
+    ci95: Optional[Dict[str, List[float]]] = None
+
+    @property
+    def fpr_per_1000(self) -> Optional[float]:
+        return None if self.fpr_ratio is None else self.fpr_ratio * 1000.0
+
+    @property
+    def has_positives(self) -> bool:
+        return self.n_positives > 0
+
+    @property
+    def has_negatives(self) -> bool:
+        return self.n_negatives > 0
+
+    @classmethod
+    def from_metrics_dict(cls, d: Dict[str, Any]) -> "EvaluationMetrics":
+        ratio = d.get("fpr_ratio")
+        if ratio is None and d.get("fpr_per_1000") is not None:
+            ratio = float(d["fpr_per_1000"]) / 1000.0
+        return cls(
+            precision=float(d["precision"]),
+            recall=float(d["recall"]),
+            f1_score=float(d["f1_score"]),
+            pr_auc=float(d["pr_auc"]),
+            fpr_ratio=None if ratio is None else float(ratio),
+            latency_p95_ms=float(d.get("latency_p95_ms", 0.0)),
+            n_samples=int(d.get("n_samples", 0)),
+            n_positives=int(d.get("n_positives", 0)),
+            n_negatives=int(d.get("n_negatives", 0)),
+            confusion=d.get("confusion"),
+            ci95=d.get("ci95"),
+        )
+
+
+@dataclass(frozen=True)
+class EvaluationPolicy:
+    """Acceptance policy resolved from research/protocol.json (the single
+    configuration source). The spec §9 floors are hard minima: a protocol
+    may tighten them, never loosen them — attempts raise ValueError."""
+    min_recall: float = GATE_FLOOR_MIN_RECALL
+    max_fpr_per_1000: float = GATE_CEILING_MAX_FPR_PER_1000
+    min_pr_auc: float = GATE_FLOOR_MIN_PR_AUC
+    max_latency_p95_ms: float = GATE_CEILING_MAX_LATENCY_P95_MS
+    require_strict_gain: bool = True
+
+    def __post_init__(self) -> None:
+        if self.min_recall < GATE_FLOOR_MIN_RECALL:
+            raise ValueError(
+                f"min_recall {self.min_recall} is below the spec floor "
+                f"{GATE_FLOOR_MIN_RECALL} — thresholds are never lowered to pass")
+        if self.max_fpr_per_1000 > GATE_CEILING_MAX_FPR_PER_1000:
+            raise ValueError(
+                f"max_fpr_per_1000 {self.max_fpr_per_1000} is loosened beyond "
+                f"the spec ceiling {GATE_CEILING_MAX_FPR_PER_1000}")
+        if self.min_pr_auc < GATE_FLOOR_MIN_PR_AUC:
+            raise ValueError(
+                f"min_pr_auc {self.min_pr_auc} is below the spec floor "
+                f"{GATE_FLOOR_MIN_PR_AUC}")
+        if self.max_latency_p95_ms > GATE_CEILING_MAX_LATENCY_P95_MS:
+            raise ValueError(
+                f"max_latency_p95_ms {self.max_latency_p95_ms} is loosened "
+                f"beyond the spec ceiling {GATE_CEILING_MAX_LATENCY_P95_MS}")
+
+    @classmethod
+    def from_protocol(cls, config: Dict[str, Any]) -> "EvaluationPolicy":
+        gates = (config or {}).get("acceptance_gates") or {}
+        return cls(
+            min_recall=float(gates["min_recall"]),
+            max_fpr_per_1000=float(gates["max_fpr_per_1000"]),
+            min_pr_auc=float(gates["min_pr_auc"]),
+            max_latency_p95_ms=float(gates["max_latency_p95_ms"]),
+        )
+
+
+@dataclass(frozen=True)
+class GateDecision:
+    """The research + activation decision (spec §9). ``claim`` is GENERATED
+    from the decision — never a constant SUPPORTED string."""
+    research_status: str            # PASSED | FAILED | INSUFFICIENT_DATA
+    activation_allowed: bool
+    reasons: List[str]
+    claim: str = ""
+
+
+def generate_claim_text(decision: GateDecision,
+                        candidate: Optional[EvaluationMetrics],
+                        baseline: Optional[EvaluationMetrics],
+                        policy: Optional[EvaluationPolicy]) -> str:
+    """Generates the claim text FROM the decision — the wording can never
+    drift to a constant SUPPORTED string, and a FAILED/INSUFFICIENT decision
+    can never produce an approval."""
+    if decision.research_status == RESEARCH_STATUS_INSUFFICIENT_DATA:
+        return ("RESEARCH GATES NOT EVALUATED — INSUFFICIENT_DATA: "
+                + "; ".join(decision.reasons)
+                + ". The acceptance gates were NOT evaluated and NO model is "
+                  "approved for activation; the rules-only baseline remains "
+                  "operative. This negative result is recorded as produced — "
+                  "neither a pass nor a model-failure verdict.")
+
+    gate_summary = (
+        f"recall={candidate.recall} (floor {policy.min_recall}), "
+        f"FPR={format_fpr(candidate.fpr_ratio)} "
+        f"(ceiling {policy.max_fpr_per_1000}/1000), "
+        f"PR-AUC(AP)={candidate.pr_auc} (floor {policy.min_pr_auc}), "
+        f"p95 latency={candidate.latency_p95_ms} ms "
+        f"(ceiling {policy.max_latency_p95_ms} ms)")
+
+    if decision.research_status == RESEARCH_STATUS_FAILED:
+        return (" | ".join([
+            f"RESEARCH GATES FAILED: {gate_summary}",
+            "; ".join(decision.reasons),
+            "ML/hybrid activation DENIED — the rules-only baseline remains "
+            "operative.",
+        ]))
+
+    if decision.activation_allowed:
+        return (" | ".join([
+            f"RESEARCH GATES PASSED: {gate_summary}",
+            f"ACTIVATION APPROVED: recall is not below the rules baseline "
+            f"({baseline.recall}) and FPR is not above the baseline "
+            f"({format_fpr(baseline.fpr_ratio)}) with a strict gain in at "
+            f"least one of them.",
+            "Activation additionally requires the sealed run manifest and "
+            "an artifact hash match via ModelRegistry.activate.",
+        ]))
+    return ("RESEARCH GATES PASSED but ML activation DENIED: "
+            + "; ".join(decision.reasons) + ".")
+
+
+def evaluate_gate(metrics: EvaluationMetrics,
+                  baseline: EvaluationMetrics,
+                  policy: EvaluationPolicy) -> GateDecision:
+    """The fail-able R18 research + activation gate (spec §9).
+
+    Research status:
+      - INSUFFICIENT_DATA when the data cannot support any decision (empty
+        sample or a missing class — the gate REFUSES instead of dividing
+        silently);
+      - FAILED when any protocol acceptance gate fails on the strict test
+        split (recall floor, FPR ceiling, PR-AUC floor, p95 ceiling);
+      - PASSED only when every acceptance gate holds.
+
+    ML activation (additional, on top of a PASSED research gate): recall
+    must not drop below the baseline, FPR must not rise above the baseline,
+    and there must be a strict gain in at least one of the two. A baseline
+    FPR of 0 therefore forbids claiming "false-positive reduction" when FPR
+    rose. The F13 observed numbers (recall 0.7698, FPR 0.00157 vs baseline
+    FPR 0) fail this gate.
+    """
+    if not isinstance(metrics, EvaluationMetrics) or \
+            not isinstance(baseline, EvaluationMetrics):
+        raise TypeError("evaluate_gate expects EvaluationMetrics inputs")
+    if not isinstance(policy, EvaluationPolicy):
+        raise TypeError("evaluate_gate expects an EvaluationPolicy")
+
+    # 0. insufficiency: refuse rather than divide silently
+    insufficient: List[str] = []
+    for label, m in (("test split", metrics), ("rules baseline", baseline)):
+        if m.n_samples <= 0:
+            insufficient.append(f"{label} has no evaluation sample")
+            continue
+        if not m.has_positives:
+            insufficient.append(
+                f"{label} is missing class '1' (no positives); the gate "
+                "refuses instead of dividing silently for recall/PR-AUC")
+        if not m.has_negatives:
+            insufficient.append(
+                f"{label} is missing class '0' (no negatives); the gate "
+                "refuses instead of dividing silently for FPR")
+        elif m.fpr_ratio is None:
+            insufficient.append(
+                f"{label} FPR is not computable from the recorded metrics")
+    if insufficient:
+        decision = GateDecision(RESEARCH_STATUS_INSUFFICIENT_DATA, False,
+                                insufficient)
+        return GateDecision(decision.research_status, False, insufficient,
+                            claim=generate_claim_text(
+                                decision, metrics, baseline, policy))
+
+    # 1. protocol acceptance gates (inclusive boundaries)
+    reasons: List[str] = []
+    if metrics.recall < policy.min_recall - _GATE_EPS:
+        reasons.append(f"recall {metrics.recall} is below the "
+                       f"{policy.min_recall} floor")
+    if metrics.fpr_per_1000 > policy.max_fpr_per_1000 + _GATE_EPS:
+        reasons.append(f"FPR {format_fpr(metrics.fpr_ratio)} exceeds the "
+                       f"{policy.max_fpr_per_1000}/1000 ceiling")
+    if metrics.pr_auc < policy.min_pr_auc - _GATE_EPS:
+        reasons.append(f"PR-AUC(AP) {metrics.pr_auc} is below the "
+                       f"{policy.min_pr_auc} floor")
+    if metrics.latency_p95_ms > policy.max_latency_p95_ms + _GATE_EPS:
+        reasons.append(f"p95 latency {metrics.latency_p95_ms} ms exceeds the "
+                       f"{policy.max_latency_p95_ms} ms ceiling")
+    research_ok = not reasons
+
+    # 2. additional ML-activation rule vs the rules-only baseline
+    recall_gain = metrics.recall - baseline.recall
+    fpr_gain = baseline.fpr_ratio - metrics.fpr_ratio
+    if metrics.recall < baseline.recall - _GATE_EPS:
+        reasons.append(
+            f"recall dropped below the rules baseline ({metrics.recall} < "
+            f"{baseline.recall}); activation requires recall >= baseline")
+    if metrics.fpr_ratio > baseline.fpr_ratio + _GATE_EPS:
+        reasons.append(
+            f"FPR {format_fpr(metrics.fpr_ratio)} is worse than the baseline "
+            f"{format_fpr(baseline.fpr_ratio)}; false-positive reduction may "
+            "NOT be claimed (activation requires FPR <= baseline)")
+    if policy.require_strict_gain and recall_gain <= _GATE_EPS \
+            and fpr_gain <= _GATE_EPS:
+        reasons.append(
+            "metrics match the baseline with no strict gain in recall or "
+            "FPR; activation requires a strict improvement in at least one")
+    activation_allowed = research_ok and not _has_activation_reasons(reasons)
+    decision = GateDecision(
+        RESEARCH_STATUS_PASSED if research_ok else RESEARCH_STATUS_FAILED,
+        activation_allowed, reasons)
+    return GateDecision(decision.research_status, decision.activation_allowed,
+                        reasons, claim=generate_claim_text(
+                            decision, metrics, baseline, policy))
+
+
+def _has_activation_reasons(reasons: List[str]) -> bool:
+    """True when any reason stems from the activation rule (vs the protocol
+    gates), detected by the wording of the activation reasons above."""
+    markers = ("rules baseline", "strict gain", "false-positive reduction")
+    return any(any(marker in r for marker in markers) for r in reasons)
+
+
+# ---------------------------------------------------------------------------
+# R18 evaluation seal — binds the exact evaluated labels/predictions, the
+# frozen config, the split and the model artifact, plus the evaluation time.
+# ---------------------------------------------------------------------------
+
+def build_evaluation_seal(run_id: str,
+                          labels: List[Any],
+                          predictions: List[Any],
+                          config_hash: str,
+                          split_hash: str,
+                          model_hash: str,
+                          evaluated_at: Optional[str] = None
+                          ) -> Dict[str, Any]:
+    """Builds the evaluation seal (spec §9). Any later threshold retune
+    changes the config hash and breaks the seal; reopening the evaluation
+    then requires a NEW run — never an independent re-test on already-seen
+    data."""
+    seal = {
+        "schema_version": EVALUATION_SEAL_SCHEMA_VERSION,
+        "run_id": str(run_id),
+        "labels_sha256": _sha256_hex(_canonical_json_bytes(list(labels))),
+        "predictions_sha256": _sha256_hex(
+            _canonical_json_bytes(list(predictions))),
+        "config_hash": str(config_hash),
+        "split_hash": str(split_hash),
+        "model_hash": str(model_hash),
+        "evaluated_at": evaluated_at or datetime.now(timezone.utc).isoformat(),
+    }
+    seal["seal_hash"] = _sha256_hex(_canonical_json_bytes(seal))
+    return seal
+
+
+def verify_evaluation_seal(seal: Optional[Dict[str, Any]]) -> List[str]:
+    """Recomputes the seal hash and checks internal consistency; returns the
+    problems found (empty list = intact seal)."""
+    problems: List[str] = []
+    if not isinstance(seal, dict):
+        return ["evaluation seal is missing or not an object"]
+    required = ("schema_version", "run_id", "labels_sha256",
+                "predictions_sha256", "config_hash", "split_hash",
+                "model_hash", "evaluated_at", "seal_hash")
+    missing = [k for k in required if k not in seal]
+    if missing:
+        problems.append(f"evaluation seal is missing {missing}")
+        return problems
+    body = {k: seal[k] for k in required if k != "seal_hash"}
+    recomputed = _sha256_hex(_canonical_json_bytes(body))
+    if recomputed != seal["seal_hash"]:
+        problems.append(
+            "evaluation seal hash does not reproduce (the seal was tampered "
+            "with or fields changed after evaluation)")
+    if seal["schema_version"] != EVALUATION_SEAL_SCHEMA_VERSION:
+        problems.append(
+            f"unsupported evaluation seal schema {seal['schema_version']!r}")
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# R18 config loading: protocol.json is the single configuration source; a
+# thin experiment-config shim may point at it but may never carry thresholds.
+# Config errors crash LOUDLY (ProtocolConfigError) — they are never recorded
+# as the INSUFFICIENT_DATA taxonomy, which is reserved for honest data
+# insufficiency.
+# ---------------------------------------------------------------------------
+
+class ProtocolConfigError(RuntimeError):
+    """A research configuration error (malformed/missing sections, loosened
+    gate floors). The runner crashes with this instead of recording an
+    INSUFFICIENT_DATA run manifest."""
+
+
+CONFIG_SHIM_ALLOWED_KEYS = {"schema_version", "protocol", "description",
+                            "results_dir"}
+REQUIRED_MODEL_NAMES = {"rules_only", "ml_isolation_forest", "hybrid_ensemble"}
+
+
+def validate_protocol_config(config: Dict[str, Any]) -> None:
+    """Fail-closed validation of the resolved protocol document."""
+    if not isinstance(config, dict):
+        raise ProtocolConfigError("protocol document must be a JSON object")
+    splits = config.get("splits")
+    if not isinstance(splits, dict):
+        raise ProtocolConfigError("protocol is missing the 'splits' section")
+    try:
+        train_end = _parse_utc(splits.get("train_end"), "splits.train_end")
+        validation_end = _parse_utc(splits.get("validation_end"),
+                                    "splits.validation_end")
+    except ValueError as exc:
+        raise ProtocolConfigError(f"invalid split cutoffs: {exc}") from exc
+    if train_end >= validation_end:
+        raise ProtocolConfigError(
+            "splits.train_end must be strictly before splits.validation_end")
+    if splits.get("random_split_fallback_allowed", False):
+        raise ProtocolConfigError(
+            "random-split fallback must never be enabled in protocol.json")
+
+    errors: List[str] = []
+    thresholds = ((config.get("activation_policy") or {})
+                  .get("decision_thresholds") or {})
+    for key in ("rules_min_score", "hybrid_min_score"):
+        if not isinstance(thresholds.get(key), (int, float)):
+            errors.append(
+                f"activation_policy.decision_thresholds.{key} must be numeric")
+
+    models = config.get("models")
+    if not isinstance(models, list) or not models:
+        errors.append("protocol is missing the 'models' list")
+    else:
+        names = {m.get("name") for m in models if isinstance(m, dict)}
+        missing = REQUIRED_MODEL_NAMES - names
+        if missing:
+            errors.append(f"protocol models are missing {sorted(missing)}")
+
+    gates = config.get("acceptance_gates")
+    if not isinstance(gates, dict):
+        errors.append("protocol is missing the 'acceptance_gates' section")
+    else:
+        checks = (
+            ("min_recall", GATE_FLOOR_MIN_RECALL, "floor"),
+            ("max_fpr_per_1000", GATE_CEILING_MAX_FPR_PER_1000, "ceiling"),
+            ("min_pr_auc", GATE_FLOOR_MIN_PR_AUC, "floor"),
+            ("max_latency_p95_ms", GATE_CEILING_MAX_LATENCY_P95_MS, "ceiling"),
+        )
+        for key, limit, kind in checks:
+            value = gates.get(key)
+            if not isinstance(value, (int, float)):
+                errors.append(f"acceptance_gates.{key} must be numeric")
+                continue
+            if kind == "floor" and value < limit:
+                errors.append(
+                    f"acceptance_gates.{key} {value} is below the spec floor "
+                    f"{limit} — thresholds are never lowered to pass")
+            if kind == "ceiling" and value > limit:
+                errors.append(
+                    f"acceptance_gates.{key} {value} is loosened beyond the "
+                    f"spec ceiling {limit} — thresholds are never loosened")
+
+    if not config.get("label_column"):
+        errors.append("protocol is missing 'label_column'")
+    if errors:
+        raise ProtocolConfigError("; ".join(errors))
+
+
+def load_experiment_config(config_path: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Loads the runner configuration. A thin shim document containing a
+    ``"protocol"`` key resolves to the referenced protocol document — all
+    thresholds live ONLY in protocol.json. Returns (effective_config,
+    provenance) where provenance records the shim/protocol paths and the
+    config hash over the RESOLVED protocol document (R17 hashing formula)."""
+    path = Path(config_path)
+    try:
+        with open(str(path), "r", encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError) as exc:
+        raise ProtocolConfigError(
+            f"cannot read experiment config {config_path}: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise ProtocolConfigError(
+            f"experiment config {config_path} must be a JSON object")
+
+    shim_name = path.name
+    protocol_name: Optional[str] = None
+    if "protocol" in doc:
+        unknown = set(doc.keys()) - CONFIG_SHIM_ALLOWED_KEYS
+        if unknown:
+            raise ProtocolConfigError(
+                f"experiment-config shim {shim_name} carries non-shim keys "
+                f"{sorted(unknown)}; thresholds and policy live only in "
+                "research/protocol.json")
+        protocol_path = (path.parent / str(doc["protocol"])).resolve()
+        try:
+            with open(str(protocol_path), "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except (OSError, ValueError) as exc:
+            raise ProtocolConfigError(
+                f"cannot read referenced protocol {protocol_path}: {exc}"
+            ) from exc
+        protocol_name = protocol_path.name
+    else:
+        config = doc
+
+    validate_protocol_config(config)
+    fingerprint = {k: v for k, v in config.items() if not k.startswith("_")}
+    provenance = {
+        "config_path": shim_name,
+        "protocol_path": protocol_name or shim_name,
+        "config_hash": _sha256_hex(
+            json.dumps(fingerprint, sort_keys=True).encode("utf-8")),
+    }
+    return config, provenance
 
 
 # ---------------------------------------------------------------------------

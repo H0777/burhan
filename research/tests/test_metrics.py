@@ -61,8 +61,11 @@ def test_metric_zero_denominator_not_zero_success():
     m = f([0, 0, 0, 0], [0, 0, 0, 0], [0.1, 0.2, 0.3, 0.4])
     assert m["precision"] == 0.0
     assert m["recall"] == 0.0
-    assert m["fpr_ratio"] is None
-    assert m["fpr_per_1000"] is None
+    # FPR here has a valid denominator (4 benign records): 0/4 is a REAL
+    # zero, honestly computable — the missing POSITIVE class is flagged so
+    # the gate refuses the recall/PR-AUC division instead.
+    assert m["fpr_ratio"] == 0.0
+    assert m["fpr_per_1000"] == 0.0
     assert m["n_positives"] == 0 and m["has_positives"] is False
     assert m["n_negatives"] == 4 and m["has_negatives"] is True
 
