@@ -120,3 +120,19 @@ export interface APIErrorResponse {
   request_id?: string
   details?: Record<string, any>
 }
+
+// ---------------------------------------------------------------------------
+// TODO-V3 (R13 reconciliation duty — DO NOT hand-edit into real types):
+// The V3 OpenAPI export (POST /api/v3/evidence/verify) is generated from the
+// R07 backend (codex/verified-remediation lane). At the time of this commit
+// R07 had NOT landed, so the V3 request/result interfaces below are NOT
+// generated yet and must NOT be fabricated by hand. The frontend client calls
+// V3 with IDs only and types the result as `unknown` until the pipeline
+// (scripts/export-openapi.py) can regenerate this file with:
+//   VerifyEvidenceRequest { case_id: string; evidence_ids: string[]; snapshot_id?: string }
+//   VerificationResult  { status: 'verified'|'invalid'|'unavailable'; reasons: string[];
+//                         snapshot_id?: string; checked_evidence_ids: string[]; deployment_id?: string }
+// Per spec §5: 401 unauthenticated, 404 out-of-institution case/evidence, 422
+// malformed/duplicate IDs; V2 verify answers 410 with a V3 pointer in
+// institutional mode. Regenerate + reconcile in R13 self-review once R07 lands.
+// ---------------------------------------------------------------------------
