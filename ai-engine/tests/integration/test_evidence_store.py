@@ -1,7 +1,9 @@
 """
-Unit & Integration tests for EvidenceStore (T14)
-Specification §6, §7 (R04, R08, R09, R14)
+Unit & Integration tests for EvidenceStore (T14 / R06)
+Specification §6, §7 (R04, R06, R08, R09, R14)
 Tests 25MB limits, path traversal rejection, WORM immutability, and tampering detection.
+Since R06 the store encrypts at rest (AES-256-GCM, wrapped DEK) when a key
+provider is configured; tamper detection runs through the GCM tag.
 """
 
 import os
@@ -11,6 +13,7 @@ import tempfile
 import shutil
 from pathlib import Path
 
+from app.security.key_provider import LocalFileKeyProvider
 from app.services.evidence_store import EvidenceStore, StoredEvidence
 
 
@@ -23,8 +26,20 @@ def temp_vault():
 
 @pytest.fixture
 def evidence_store(temp_vault):
-    # Set max size to 1 MB for fast testing of boundary limits
-    return EvidenceStore(base_dir=temp_vault, max_size_bytes=1024 * 1024)
+    # Set max size to 1 MB for fast testing of boundary limits.
+    # R06: writes go through AES-256-GCM with an institution-wrapped DEK.
+    keys = Path(tempfile.mkdtemp(prefix="evidence_vault_keys_"))
+    inst_dir = keys / "INST-CBI-IQ-01"
+    inst_dir.mkdir(parents=True)
+    (inst_dir / "k1.seed").write_bytes(os.urandom(32))
+    (inst_dir / "current").write_text("k1", encoding="utf-8")
+    store = EvidenceStore(
+        base_dir=temp_vault,
+        max_size_bytes=1024 * 1024,
+        key_provider=LocalFileKeyProvider(keys),
+    )
+    yield store
+    shutil.rmtree(str(keys), ignore_errors=True)
 
 
 def test_put_and_open_valid_evidence(evidence_store):
@@ -139,7 +154,9 @@ def test_tampering_detection_on_read(evidence_store):
         object_version=1,
     )
 
-    # Malicious actor tampers with underlying storage file on disk
+    # Malicious actor tampers with underlying storage file on disk. Since R06
+    # the object at rest is AES-256-GCM ciphertext: the tampered bytes fail
+    # the GCM tag check before any plaintext is released.
     with open(stored.storage_path, "wb") as f:
         f.write(b"Compromised / Altered bytes by attacker!")
 
