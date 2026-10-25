@@ -128,7 +128,7 @@ def list_cases(
             )
     except CaseServiceError as exc:
         # Invalid / foreign-institution / filter-mismatched cursors -> 400.
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg_of(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get(

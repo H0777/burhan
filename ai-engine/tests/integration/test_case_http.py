@@ -227,6 +227,12 @@ def _auth(jwks_provider, sub, institution=TENANT, role="AUDITOR"):
     return {"Authorization": f"Bearer {_token(jwks_provider, sub, institution, role)}"}
 
 
+def _suffix() -> str:
+    """Per-run suffix: the test database persists across suite runs (R11 convention),
+    so every case number is unique per run to keep assertions exact."""
+    return uuid.uuid4().hex[:8]
+
+
 def _create_case(api, jwks_provider, case_number, **overrides):
     body = {
         "case_number": case_number,
@@ -267,7 +273,7 @@ def test_http_create_list_get_transition_no_500(api, jwks_provider):
     assert res.status_code == 403, f"expected 403 without membership, got {res.status_code}"
 
     # 3) 201: create with a real AUDITOR membership.
-    res = _create_case(api, jwks_provider, "R12-FLOW-001", severity="HIGH")
+    res = _create_case(api, jwks_provider, f"R12-FLOW-001-{_suffix()}", severity="HIGH")
     seen.append(res.status_code)
     assert res.status_code == 201, f"create failed: {res.status_code} {res.text}"
     case = res.json()
@@ -341,11 +347,12 @@ def test_same_key_different_description_or_severity_409(api, jwks_provider):
     """A reused idempotency key with a CHANGED semantic field must be rejected with
     409 — never replayed as a stale success."""
     key = f"r12-idem-desc-{uuid.uuid4().hex[:8]}"
+    number = f"R12-IDEM-DESC-{_suffix()}"
 
     res = api.post(
         "/api/v2/cases",
         json={
-            "case_number": "R12-IDEM-DESC",
+            "case_number": number,
             "title": "Idempotency conflict probe",
             "description": "original description",
             "severity": "HIGH",
@@ -359,7 +366,7 @@ def test_same_key_different_description_or_severity_409(api, jwks_provider):
     res2 = api.post(
         "/api/v2/cases",
         json={
-            "case_number": "R12-IDEM-DESC",
+            "case_number": number,
             "title": "Idempotency conflict probe",
             "description": "TAMPERED description",
             "severity": "HIGH",
@@ -374,7 +381,7 @@ def test_same_key_different_description_or_severity_409(api, jwks_provider):
     res3 = api.post(
         "/api/v2/cases",
         json={
-            "case_number": "R12-IDEM-DESC",
+            "case_number": number,
             "title": "Idempotency conflict probe",
             "description": "original description",
             "severity": "CRITICAL",
@@ -387,7 +394,7 @@ def test_same_key_different_description_or_severity_409(api, jwks_provider):
 
     # No duplicate case was created by the conflicting replays.
     res4 = api.get("/api/v2/cases?limit=100", headers=_auth(jwks_provider, AUDITOR_SUB))
-    numbers = [i["case_number"] for i in res4.json()["items"] if i["case_number"] == "R12-IDEM-DESC"]
+    numbers = [i["case_number"] for i in res4.json()["items"] if i["case_number"] == number]
     assert len(numbers) == 1
     assert original_id
 
@@ -395,7 +402,7 @@ def test_same_key_different_description_or_severity_409(api, jwks_provider):
 def test_transition_new_assignee_changes_digest_409(api, jwks_provider):
     """A transition replayed under the same key with a different new_assignee_sub
     changes the semantic digest -> 409, not a stale success."""
-    res = _create_case(api, jwks_provider, "R12-IDEM-ASSIGN")
+    res = _create_case(api, jwks_provider, f"R12-IDEM-ASSIGN-{_suffix()}")
     assert res.status_code == 201, res.text
     case_id = res.json()["id"]
     key = f"r12-idem-assign-{uuid.uuid4().hex[:8]}"
@@ -431,7 +438,7 @@ def test_same_request_returns_same_response(api, jwks_provider):
     not re-execute (no duplicate case, no duplicate transition event)."""
     key = f"r12-idem-same-{uuid.uuid4().hex[:8]}"
     body = {
-        "case_number": "R12-IDEM-SAME",
+        "case_number": f"R12-IDEM-SAME-{_suffix()}",
         "title": "Replay stability probe",
         "description": "stable description",
         "severity": "MEDIUM",
@@ -477,9 +484,24 @@ def test_same_request_returns_same_response(api, jwks_provider):
 # ---------------------------------------------------------------------------
 
 
-def test_pagination_two_pages_no_duplicates(api, jwks_provider):
+def _clear_tenant_cases(owner_engine, institution: str) -> None:
+    """Reset the tenant's case set (owner role, under the tenant context): the test
+    database persists across runs, and the pagination page math needs an exact set."""
+    from app.db.models import Case as CaseModel
+
+    with sessionmaker(bind=owner_engine)() as session:
+        with tenant_transaction(session, institution):
+            for row in session.execute(
+                text("SELECT id FROM cases WHERE institution_id = :i"), {"i": institution}
+            ).scalars():
+                session.get(CaseModel, row)
+                session.delete(session.get(CaseModel, row))
+
+
+def test_pagination_two_pages_no_duplicates(api, jwks_provider, owner_engine):
     """Stable (created_at, id) keyset pagination: no duplicates, no gaps,
     next_cursor only when a further page exists, foreign/malformed cursors rejected."""
+    _clear_tenant_cases(owner_engine, TENANT_PAGES)
     headers = _auth(jwks_provider, PAGES_SUB, institution=TENANT_PAGES)
     created_ids = []
     for n in range(1, 6):
@@ -531,10 +553,11 @@ def test_pagination_two_pages_no_duplicates(api, jwks_provider):
     # Foreign cursor: a cursor legitimately minted for ANOTHER institution (real
     # next_cursor from TENANT_OTHER's own list) must be rejected here.
     other_headers = _auth(jwks_provider, AUDITOR_SUB, institution=TENANT_OTHER)
+    other_suffix = _suffix()
     for n in range(1, 3):
         res_other = api.post(
             "/api/v2/cases",
-            json={"case_number": f"R12-OTHER-{n:03d}", "title": f"other {n}"},
+            json={"case_number": f"R12-OTHER-{other_suffix}-{n:03d}", "title": f"other {n}"},
             headers=other_headers,
         )
         assert res_other.status_code == 201, res_other.text
