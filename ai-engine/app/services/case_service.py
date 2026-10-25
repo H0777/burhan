@@ -81,6 +81,14 @@ def _canonical_digest(payload: Any) -> str:
     return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def _as_aware(dt: datetime) -> datetime:
+    """SQLite (dev/test) returns naive datetimes from DateTime(timezone=True)
+    columns; every stored value is written as UTC. Normalize before comparing."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _idempotency_scope_key(institution_id: str, sub: str, scope: Tuple[str, str], raw_key: str) -> str:
     """
     The stored `key` for an idempotency reservation: a digest of
@@ -166,7 +174,7 @@ class CaseService:
         ).scalars().first()
         if ik is None:
             return None
-        if ik.expires_at is not None and ik.expires_at <= now:
+        if ik.expires_at is not None and _as_aware(ik.expires_at) <= now:
             session.delete(ik)
             session.flush()
             return None
