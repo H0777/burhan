@@ -153,8 +153,8 @@ def test_invalid_manifest_or_hash_blocks_activation(env):
         registry.activate("hybrid_ensemble", _write_manifest(env, doc))
 
     # g) evaluated artifact not deployed at the server path at all
-    env.artifact.unlink()
     doc = build_manifest_doc(env.artifact)
+    env.artifact.unlink()
     with pytest.raises(ModelActivationError):
         registry.activate("hybrid_ensemble", _write_manifest(env, doc))
 

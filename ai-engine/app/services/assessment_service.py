@@ -1,21 +1,29 @@
 """
 Authoritative Risk Assessment & AML Evaluation Service (V2)
-Cyber-Forensic Auditing Framework - Specification §7 & §8 (T18, R07, R12)
+Cyber-Forensic Auditing Framework - Specification §7 & §8 (T18, R07, R12, R18)
 
 Executes policy-driven compliance rules and fraud detection algorithms against authoritative
 server-side feature snapshots, recording immutable audit records for regulatory scrutiny.
+
+R18: the service resolves its evaluation engine through the model registry,
+which is bound to the research evaluation decision. The default engine is
+rule_based; an operator-requested hybrid without a valid, sealed activation
+binding fails the request clearly (ModelActivationError) — the service never
+falls back to an undeclared engine, and model_loaded is always reported
+truthfully (this authoritative path evaluates the regulatory rule matrix).
 """
 
 import uuid
 import json
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 
 from app.schemas.identity import Identity
 from app.schemas.assessment import FeatureSnapshot, AssessmentResponse
 from app.db.models import AssessmentRecord, TransactionRecord
 from app.services.feature_service import FeatureService
+from app.models.registry import ActivationBinding, ModelActivationError, ModelRegistry
 
 
 class AssessmentService:
@@ -23,8 +31,27 @@ class AssessmentService:
     Evaluates financial transactions against regulatory AML policies and insider anomaly rules.
     """
 
-    def __init__(self, feature_service: Optional[FeatureService] = None):
+    def __init__(self, feature_service: Optional[FeatureService] = None,
+                 model_registry: Optional[ModelRegistry] = None,
+                 requested_engine: str = "auto"):
         self.feature_service = feature_service or FeatureService()
+        self.model_registry = model_registry or ModelRegistry()
+        if requested_engine not in ("auto", "rule_based", "hybrid"):
+            raise ValueError(
+                f"unknown engine mode {requested_engine!r}; expected "
+                f"auto|rule_based|hybrid")
+        self.requested_engine = requested_engine
+
+    def resolve_engine_mode(self) -> Tuple[str, Optional[ActivationBinding]]:
+        """Resolve the evaluation engine against the model registry binding.
+
+        Default ("auto") is rule_based unless a sealed, PASSED activation
+        binding fully reproduces. An operator-requested "hybrid" without a
+        valid binding raises ModelActivationError — the request fails
+        clearly instead of running an undeclared fallback.
+        """
+        return self.model_registry.resolve_engine(
+            requested_mode=self.requested_engine)
 
     def assess_transaction(
         self,
@@ -37,6 +64,14 @@ class AssessmentService:
         """
         Performs authoritative or preview evaluation of a transaction.
         """
+        # R18: resolve the engine against the research activation binding
+        # FIRST — an operator-requested hybrid without a valid, sealed
+        # activation binding fails the request clearly here (and a broken
+        # binding is never silently ignored). The authoritative scoring path
+        # itself evaluates the regulatory rule matrix; model_loaded below is
+        # therefore always truthfully False for this service.
+        _engine_mode, _activation = self.resolve_engine_mode()
+
         institution_id = identity.institution_id
 
         # 1. Authoritative feature extraction
