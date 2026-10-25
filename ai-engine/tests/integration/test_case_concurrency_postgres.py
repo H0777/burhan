@@ -168,7 +168,7 @@ def test_concurrent_expected_version_one_winner(app_engine, seeded):
     def _wait_at_case_update(conn, cursor, statement, parameters, context, executemany):
         # Fired per statement on the shared engine: park both threads immediately
         # before their UPDATE on cases so both arrive with expected_version=1 read.
-        if statement.lstrip().upper().startswith("UPDATE cases"):
+        if statement.lstrip().upper().startswith("UPDATE CASES"):
             barrier.wait()
 
     def _race(tag, sub):
