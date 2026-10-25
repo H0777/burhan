@@ -83,6 +83,7 @@ describe('ApiClient path discipline (R13/F09)', () => {
   it('paths must start with /api/v2 or /api/v3 exactly once', async () => {
     const { createApiClient } = await import('./client.js')
     const client = createApiClient(makeConfig(''))
+    global.fetch = vi.fn().mockResolvedValue(okJson({ status: 'verified' }))
 
     await expect(client.request('/api/v1/risk/score')).rejects.toThrow(/api\/v2|api\/v3/)
     await expect(client.request('api/v2/cases')).rejects.toThrow()
@@ -197,7 +198,8 @@ describe('ApiClient path discipline (R13/F09)', () => {
     expect(url).toBe('https://api.bank-iq.example/api/v2/cases?limit=5')
 
     setActiveApiClient(null)
-    await expect(apiV2Client.listCases()).rejects.toThrow()
+    // Property access itself throws synchronously before any request is made.
+    expect(() => apiV2Client.listCases()).toThrow()
   })
 
   it('anchor/verify/demo state mapping distinguishes pending/submitted/anchored, verified/invalid/unavailable, demo/legacy', async () => {
