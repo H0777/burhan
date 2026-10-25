@@ -1,15 +1,21 @@
 """
-Integration Tests for Evidence Delivery and Failure Injection (T14)
-Specification §5, §7 (R01, R04, R08, R09, R14)
+Integration Tests for Evidence Delivery and Failure Injection (T14 / R06)
+Specification §5, §6, §7 (R01, R04, R06, R08, R09, R14)
 Tests atomic rollback, outbox worker idempotent replay, crash recovery before ACK,
-assignment authorization, and rejection of conflicting payloads.
+assignment authorization, rejection of conflicting payloads — and the R06
+signed-manifest semantics: a REAL Ed25519 SignedEnvelope stored BEFORE the
+outbox event, with manifest_digest taken over the canonical SIGNED envelope
+(signature included), all inside one transaction.
 """
 
 import pytest
 import io
+import json
 import uuid
+import os
 import hashlib
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -24,12 +30,23 @@ from app.db.models import (
     CaseEvent,
 )
 from app.schemas.identity import Identity, RoleEnum
+from app.security.key_provider import LocalFileKeyProvider
+from app.security.signing import (
+    DOMAIN_SERVICE_MANIFEST,
+    Signer,
+    Verifier,
+    TrustRegistry,
+    RegistryEntry,
+    encode_public_key,
+    envelope_digest,
+)
 from app.services.evidence_store import EvidenceStore
 from app.services.evidence_broker import (
     EvidenceBroker,
     CaseAssignmentError,
     RoleNotAuthorizedError,
     IdempotencyConflictError,
+    MissingSignerError,
 )
 from app.workers.evidence_anchor import EvidenceAnchorWorker
 from app.repositories import case_repository, evidence_repository
@@ -95,7 +112,20 @@ class MockEvmRpcClient:
 def test_env():
     with tempfile.TemporaryDirectory() as temp_dir:
         store_path = Path(temp_dir) / "evidence_vault"
-        evidence_store = EvidenceStore(base_dir=str(store_path), max_size_bytes=10 * 1024 * 1024)
+        # R06: institution signing/wrapping key mounted outside the vault.
+        keys = Path(temp_dir) / "keys" / "inst_cbi"
+        keys.mkdir(parents=True)
+        seed = os.urandom(32)
+        (keys / "k1.seed").write_bytes(seed)
+        (keys / "current").write_text("k1", encoding="utf-8")
+        key_provider = LocalFileKeyProvider(Path(temp_dir) / "keys")
+        signer = Signer(key_provider)
+
+        evidence_store = EvidenceStore(
+            base_dir=str(store_path),
+            max_size_bytes=10 * 1024 * 1024,
+            key_provider=key_provider,
+        )
 
         engine = create_engine("sqlite:///:memory:", echo=False)
         from sqlalchemy import event
@@ -131,15 +161,49 @@ def test_env():
             "session": session,
             "evidence_store": evidence_store,
             "case": case,
+            "key_provider": key_provider,
+            "signer": signer,
+            "seed": seed,
         }
         session.close()
+
+
+def _registry_for(seed: bytes, institution_id: str = "inst_cbi", key_id: str = "k1") -> TrustRegistry:
+    """External trust registry binding the institution key (test stand-in
+    for the authoritative registry document)."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    public_key = encode_public_key(Ed25519PrivateKey.from_private_bytes(seed).public_key())
+    now = datetime.now(timezone.utc)
+    return TrustRegistry(
+        [
+            RegistryEntry.from_mapping(
+                {
+                    "institution_id": institution_id,
+                    "key_id": key_id,
+                    "public_key": public_key,
+                    "valid_from": (now - timedelta(days=1)).isoformat(),
+                    "valid_until": (now + timedelta(days=365)).isoformat(),
+                    "status": "active",
+                }
+            )
+        ]
+    )
+
+
+def _broker(test_env) -> EvidenceBroker:
+    return EvidenceBroker(
+        evidence_store=test_env["evidence_store"],
+        signer=test_env["signer"],
+        key_provider=test_env["key_provider"],
+    )
 
 
 def test_evidence_submission_and_anchoring_flow(test_env):
     """Happy path: submit evidence, inspect outbox, and run anchor worker."""
     session = test_env["session"]
     store = test_env["evidence_store"]
-    broker = EvidenceBroker(evidence_store=store)
+    broker = _broker(test_env)
     rpc_client = MockEvmRpcClient()
     worker = EvidenceAnchorWorker(rpc_client=rpc_client)
 
@@ -169,19 +233,60 @@ def test_evidence_submission_and_anchoring_flow(test_env):
     assert res["file_size"] == len(sample_content)
     assert res["sha256_hash"] == hashlib.sha256(sample_content).hexdigest()
 
-    # Verify pending state in DB
+    # R06: the manifest is a REAL SignedEnvelope, not a digest named manifest.
+    envelope = res["manifest"]
+    assert envelope["algorithm"] == "Ed25519"
+    assert set(envelope) == {"body", "algorithm", "signature"}
+    body = envelope["body"]
+    for field in (
+        "institution_id", "case_id", "evidence_id", "object_version",
+        "file_sha256", "size", "anchor_request_id", "participant_id",
+        "issued_at", "key_id",
+    ):
+        assert field in body, f"manifest body missing spec section 6 field {field}"
+    assert body["file_sha256"] == res["sha256_hash"]
+    assert body["anchor_request_id"] == res["anchor_request_id"]
+
+    # The digest covers the canonical SIGNED envelope (signature included).
+    assert res["manifest_digest"] == envelope_digest(envelope)
+    assert res["manifest_hash"] == "0x" + envelope_digest(envelope)
+
+    # The signature verifies against the external trust registry.
+    result = Verifier().verify(
+        DOMAIN_SERVICE_MANIFEST, envelope, _registry_for(test_env["seed"])
+    )
+    assert result.is_verified, f"manifest signature did not verify: {result}"
+
+    # EvidenceObject row: signed envelope stored with the encryption metadata.
+    ev_row = session.execute(
+        select(EvidenceObject).where(EvidenceObject.evidence_id == res["evidence_id"])
+    ).scalars().first()
+    assert ev_row is not None
+    assert ev_row.encrypted is True
+    assert ev_row.storage_format == "aes256gcm_v1"
+    assert ev_row.encryption_key_id == "k1"
+    assert ev_row.wrapped_dek is not None and "ciphertext" in ev_row.wrapped_dek
+    assert ev_row.nonce is not None and ev_row.auth_tag is not None
+    assert ev_row.manifest_envelope_json is not None
+    assert json.loads(ev_row.manifest_envelope_json) == envelope
+    assert ev_row.manifest_digest == res["manifest_digest"]
+
+    # Signed envelope stored BEFORE the outbox event: the outbox payload
+    # carries exactly the stored envelope.
     anchor_db = session.execute(
         select(EvidenceAnchor).where(EvidenceAnchor.evidence_id == res["evidence_id"])
     ).scalars().first()
     assert anchor_db is not None
     assert anchor_db.status == "PENDING_ANCHOR"
 
-    # Verify outbox item exists
     outbox_items = session.execute(
         select(Outbox).where(Outbox.institution_id == "inst_cbi")
     ).scalars().all()
     assert len(outbox_items) == 1
     assert outbox_items[0].status == "PENDING"
+    ob_payload = json.loads(outbox_items[0].payload_json)
+    assert ob_payload["service_manifest"] == envelope
+    assert ob_payload["manifest_hash"] == "0x" + res["manifest_digest"]
 
     # Run anchor worker
     processed = worker.process_pending_anchors(session, institution_id="inst_cbi")
@@ -203,7 +308,7 @@ def test_crash_recovery_before_ack_idempotency(test_env):
     """
     session = test_env["session"]
     store = test_env["evidence_store"]
-    broker = EvidenceBroker(evidence_store=store)
+    broker = _broker(test_env)
     rpc_client = MockEvmRpcClient()
     worker = EvidenceAnchorWorker(rpc_client=rpc_client)
 
@@ -257,7 +362,7 @@ def test_case_assignment_unauthorized_investigator(test_env):
     """Investigator not assigned to case must be rejected with CaseAssignmentError."""
     session = test_env["session"]
     store = test_env["evidence_store"]
-    broker = EvidenceBroker(evidence_store=store)
+    broker = _broker(test_env)
 
     unassigned_identity = Identity(
         issuer="https://auth.cbi.iq",
@@ -282,7 +387,7 @@ def test_auditor_role_cannot_submit_evidence(test_env):
     """Auditors have read-only permissions and cannot submit evidence."""
     session = test_env["session"]
     store = test_env["evidence_store"]
-    broker = EvidenceBroker(evidence_store=store)
+    broker = _broker(test_env)
 
     auditor_identity = Identity(
         issuer="https://auth.cbi.iq",
@@ -301,3 +406,97 @@ def test_auditor_role_cannot_submit_evidence(test_env):
             content_type="application/pdf",
             stream=io.BytesIO(b"AUDITOR_SUBMIT"),
         )
+
+
+def test_manifest_digest_covers_signature(test_env):
+    """R06: manifest_digest is SHA-256 of the canonical SIGNED envelope.
+    Changing ONLY the signature (identical body) changes the digest — a
+    digest of the body alone could never detect that."""
+    session = test_env["session"]
+    broker = _broker(test_env)
+    identity = Identity(
+        issuer="https://auth.cbi.iq",
+        sub="usr_assigned",
+        institution_id="inst_cbi",
+        participant_id="0x" + ("1" * 64),
+        role=RoleEnum.OPERATOR,
+    )
+    res = broker.submit_case_evidence(
+        session=session,
+        identity=identity,
+        case_id="case_aml_001",
+        file_name="digest_semantics.txt",
+        content_type="text/plain",
+        stream=io.BytesIO(b"digest over signed envelope"),
+    )
+    session.commit()
+
+    envelope = res["manifest"]
+    base_digest = envelope_digest(envelope)
+    assert res["manifest_digest"] == base_digest
+
+    # Tamper ONLY the signature: digest must change, verification must fail.
+    first_char = "A" if envelope["signature"][0] != "A" else "B"
+    tampered = dict(envelope, signature=first_char + envelope["signature"][1:])
+    assert tampered["body"] == envelope["body"]
+    assert envelope_digest(tampered) != base_digest
+    result = Verifier().verify(
+        DOMAIN_SERVICE_MANIFEST, tampered, _registry_for(test_env["seed"])
+    )
+    assert not result.is_verified
+
+
+def test_db_failure_rolls_back_and_leaves_no_unpublished_staging(test_env, monkeypatch):
+    """R06 failure semantics: when the DB write fails, the transaction rolls
+    back as ONE unit (no evidence row, no anchor, no outbox, no case event),
+    only unpublished staging is deleted, and the already-published disk
+    object remains as an ORPHAN for later-retention collection — the broker
+    never deletes published evidence files."""
+    from app.repositories import outbox_repository
+
+    session = test_env["session"]
+    store = test_env["evidence_store"]
+    broker = _broker(test_env)
+    identity = Identity(
+        issuer="https://auth.cbi.iq",
+        sub="usr_assigned",
+        institution_id="inst_cbi",
+        participant_id="0x" + ("1" * 64),
+        role=RoleEnum.OPERATOR,
+    )
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("simulated DB failure at outbox enqueue")
+
+    monkeypatch.setattr(outbox_repository, "enqueue_event", explode)
+
+    with pytest.raises(RuntimeError, match="simulated DB failure"):
+        broker.submit_case_evidence(
+            session=session,
+            identity=identity,
+            case_id="case_aml_001",
+            file_name="rollback.bin",
+            content_type="application/octet-stream",
+            stream=io.BytesIO(b"bytes whose DB row must roll back"),
+        )
+
+    # One transaction: nothing persisted (the CASE_CREATED event from the
+    # fixture predates the broker call; no EVIDENCE_SUBMITTED event exists).
+    assert session.execute(select(EvidenceObject)).scalars().all() == []
+    assert session.execute(select(Outbox)).scalars().all() == []
+    case_events = session.execute(
+        select(CaseEvent).where(CaseEvent.event_type == "EVIDENCE_SUBMITTED")
+    ).scalars().all()
+    assert case_events == []
+    assert session.execute(select(EvidenceAnchor)).scalars().all() == []
+
+    # Only unpublished staging is deleted: no staging residue anywhere.
+    vault_root = store.base_dir
+    residue = [str(p) for p in vault_root.rglob(".staging*")]
+    assert residue == [], f"staging leaked after DB failure: {residue}"
+
+    # The disk object published before the DB write is an ORPHAN: it stays
+    # (documented; later-retention work collects it, and we never delete
+    # published or anchored files on the basis of a rolled-back transaction).
+    orphans = list(vault_root.rglob("COMMITTED.marker"))
+    assert len(orphans) == 1, f"expected the orphaned published object, got {orphans}"

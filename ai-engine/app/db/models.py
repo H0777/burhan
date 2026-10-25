@@ -128,6 +128,15 @@ class EvidenceObject(Base):
     sha256_hash = Column(String(64), nullable=False)
     storage_path = Column(String(512), nullable=False)
     encrypted = Column(Boolean, default=True, nullable=False)
+    # R06 encrypted-object metadata (nullable: pre-R06 legacy rows stay
+    # legacy_plaintext_read_only and are never retroactively converted).
+    storage_format = Column(String(32), nullable=True)
+    encryption_key_id = Column(String(128), nullable=True)
+    wrapped_dek = Column(Text, nullable=True)
+    nonce = Column(String(64), nullable=True)
+    auth_tag = Column(String(64), nullable=True)
+    manifest_envelope_json = Column(Text, nullable=True)
+    manifest_digest = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (

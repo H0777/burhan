@@ -32,6 +32,13 @@ def save_evidence_object(
     sha256_hash: str,
     storage_path: str,
     object_version: int = 1,
+    storage_format: Optional[str] = None,
+    encryption_key_id: Optional[str] = None,
+    wrapped_dek: Optional[str] = None,
+    nonce: Optional[str] = None,
+    auth_tag: Optional[str] = None,
+    manifest_envelope_json: Optional[str] = None,
+    manifest_digest: Optional[str] = None,
 ) -> EvidenceObject:
     # Verify that case exists for this institution
     case = session.execute(
@@ -56,6 +63,11 @@ def save_evidence_object(
             f"Evidence {evidence_id} version {object_version} already exists for institution {institution_id}"
         )
 
+    # Honest storage classification (R06): only objects whose metadata says
+    # aes256gcm_v1 (GCM-verified, wrapped DEK, key id) are stored as
+    # encrypted=True. Everything else stays legacy_plaintext_read_only.
+    is_encrypted = storage_format == "aes256gcm_v1"
+
     obj = EvidenceObject(
         id=f"ev_{uuid.uuid4().hex[:16]}",
         institution_id=institution_id,
@@ -67,7 +79,14 @@ def save_evidence_object(
         file_size=file_size,
         sha256_hash=sha256_hash,
         storage_path=storage_path,
-        encrypted=True,
+        encrypted=is_encrypted,
+        storage_format=storage_format or "legacy_plaintext_read_only",
+        encryption_key_id=encryption_key_id,
+        wrapped_dek=wrapped_dek,
+        nonce=nonce,
+        auth_tag=auth_tag,
+        manifest_envelope_json=manifest_envelope_json,
+        manifest_digest=manifest_digest,
     )
     session.add(obj)
     session.flush()

@@ -263,18 +263,26 @@ def test_path_prefix_sibling(store, vault):
 
 
 def test_symlink_escape(store, vault):
-    """A symlink inside the store pointing outside the root is rejected on
-    write and read paths."""
+    """A symlink (or Windows junction — the privilege-free equivalent) inside
+    the store pointing outside the root is rejected on write and read paths."""
     outside = Path(tempfile.mkdtemp(prefix="r06_outside_"))
     try:
         inst, ev = "INST-SYM", "ev-sym-1"
         link_path = vault / inst
+        created = False
         try:
             os.symlink(outside, link_path, target_is_directory=True)
+            created = True
         except (OSError, NotImplementedError):
-            pytest.skip("symlink creation unavailable on this Windows profile (no privilege/developer mode)")
+            # WinError 1314 (no SeCreateSymbolicLinkPrivilege): fall back to a
+            # junction, which needs no privilege and escapes identically.
+            import _winapi
 
-        # Write path refuses to traverse the symlink.
+            _winapi.CreateJunction(str(outside), str(link_path))
+            created = True
+        assert created, "neither symlink nor junction could be created"
+
+        # Write path refuses to traverse the link.
         with pytest.raises(ValueError, match="symlink"):
             store.put(
                 stream_or_bytes=b"escape attempt",
@@ -291,6 +299,13 @@ def test_symlink_escape(store, vault):
             store.open(institution_id=inst, evidence_id=ev, object_version=1)
     finally:
         shutil.rmtree(outside, ignore_errors=True)
+        # Remove the junction itself (a directory unlink; do not follow it).
+        link_path = vault / "INST-SYM"
+        if link_path.exists():
+            try:
+                os.rmdir(str(link_path))
+            except OSError:
+                pass
 
 
 def test_metadata_filename_traversal(store, vault):

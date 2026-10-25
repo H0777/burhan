@@ -372,12 +372,19 @@ def test_later_encrypted_copy_preserves_original_hash_and_provenance(key_env):
     )
     assert migrated.object_version == 2
 
-    data2, meta2 = legacy_store.open(institution_id=inst, evidence_id=ev, object_version=2)
+    # v2 is encrypted: it decrypts only through a provider-backed store.
+    encrypted_store = key_env["store"]
+    data2, meta2 = encrypted_store.open(institution_id=inst, evidence_id=ev, object_version=2)
     assert data2 == legacy_content
     assert meta2["storage_format"] == "aes256gcm_v1"
     assert meta2["migration"]["migrated_from_version"] == 1
     assert meta2["migration"]["original_sha256"] == original_sha
     assert meta2["migration"]["original_storage_format"] == "legacy_plaintext_read_only"
+
+    # Fail-closed: a store without key material refuses the encrypted copy —
+    # proof there is no plaintext DEK at rest to fall back on.
+    with pytest.raises(Exception):
+        legacy_store.open(institution_id=inst, evidence_id=ev, object_version=2)
 
     # v1 unchanged: still legacy plaintext on disk, same hash.
     v1_data, v1_meta = legacy_store.open(institution_id=inst, evidence_id=ev, object_version=1)
