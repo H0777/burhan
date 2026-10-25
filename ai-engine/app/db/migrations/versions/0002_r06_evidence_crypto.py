@@ -20,7 +20,10 @@ constraint, all preserved untouched):
                           signature itself is inside the digest input).
 
 Conventions (R11 binding): unique revision slug, down_revision = the sole
-head at merge time ('r11_baseline'), single head maintained. evidence_objects
+head at merge time ('institutional_wallet_challenges' — re-pointed from
+'r11_baseline' after a parallel merge to restore the single head; the two
+revisions touch independent tables, so the re-order is behaviorally safe),
+single head maintained. evidence_objects
 is an existing tenant table: its RLS policies (ENABLE + FORCE +
 tenant_isolation_policy USING/WITH CHECK on current_setting) already cover
 whole rows, so new columns are protected without new policies; this revision
@@ -32,7 +35,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "r06_evidence_crypto"
-down_revision = "r11_baseline"
+down_revision = "institutional_wallet_challenges"
 branch_labels = None
 depends_on = None
 
