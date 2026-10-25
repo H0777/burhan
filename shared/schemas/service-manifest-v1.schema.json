@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iraq-aml-audit-chain/schemas/service-manifest-v1.schema.json",
+  "title": "AML Service Manifest Signed Envelope v1",
+  "description": "SignedEnvelope for domain AML_SERVICE_MANIFEST_V1 (spec section 6). The signature is Ed25519 over domain + NUL + canonical JSON of body (UTF-8, sort_keys=True, separators=(',',':'), ensure_ascii=False, allow_nan=False; no floats, no duplicate keys, no Unicode normalization). Verification uses ONLY the external trust registry entry matching (body.institution_id, body.key_id); key material embedded in the envelope is never trusted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["body", "algorithm", "signature"],
+  "properties": {
+    "body": {
+      "type": "object",
+      "required": ["institution_id", "key_id", "schema_version", "manifest"],
+      "additionalProperties": true,
+      "properties": {
+        "institution_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "schema_version": { "const": 1 },
+        "manifest": {
+          "type": "object",
+          "required": ["service", "version", "issued_at"],
+          "additionalProperties": true,
+          "properties": {
+            "service": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "minLength": 1 },
+            "issued_at": { "type": "string", "format": "date-time" },
+            "statement_ar": { "type": "string" },
+            "totals": {
+              "type": "object",
+              "additionalProperties": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "algorithm": { "const": "Ed25519" },
+    "signature": {
+      "type": "string",
+      "description": "base64 (standard alphabet) of the 64-byte Ed25519 signature over domain + NUL + canonical_bytes(body).",
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+      "minLength": 1
+    }
+  }
+}
