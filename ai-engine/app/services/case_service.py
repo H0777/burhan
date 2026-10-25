@@ -360,14 +360,18 @@ class CaseService:
             _decode_case_list_cursor(cursor, institution_id, filters) if cursor else None
         )
 
-        rows, has_more = case_repository.list_cases(
+        # Probe for a further page by fetching limit+1 (repo honors keyset cursor
+        # and filters); next_cursor is produced ONLY from that extra row.
+        rows = case_repository.list_cases(
             session,
             institution_id,
-            limit=limit,
+            limit=min(limit + 1, 101),
             cursor=cursor_key,
             status=status,
             severity=severity,
         )
+        has_more = len(rows) > limit
+        rows = rows[:limit]
 
         items = [
             CaseResponse(

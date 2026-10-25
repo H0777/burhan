@@ -92,17 +92,18 @@ def list_cases(
     cursor: Optional[Tuple[datetime, str]] = None,
     status: Optional[str] = None,
     severity: Optional[str] = None,
-) -> Tuple[List[Case], bool]:
+) -> List[Case]:
     """
     Keyset pagination on the stable (created_at DESC, id DESC) order.
 
-    Fetches limit+1 rows: the caller serves `limit` items and knows a further page
-    exists exactly when limit+1 was found (next_cursor is therefore never returned
-    while the result set is exhausted). `cursor` is the decoded (created_at, id)
-    keyset bound to this institution and filter set; the SQL row-value comparison
-    is strictly "after the last served row" so pages never overlap or skip.
+    `cursor` is the decoded (created_at, id) keyset bound to this institution and
+    filter set; the SQL row-value comparison is strictly "after the last served
+    row" so pages never overlap or skip. Returns up to `limit` rows (clamped to
+    1..101); the caller probes for a further page by requesting limit+1 rows —
+    seeing the extra row means a next page exists (next_cursor is therefore only
+    produced while results remain).
     """
-    limit = min(max(1, limit), 100)
+    limit = min(max(1, limit), 101)
     from sqlalchemy import tuple_
 
     conditions = [Case.institution_id == institution_id]
@@ -117,11 +118,9 @@ def list_cases(
         select(Case)
         .where(*conditions)
         .order_by(Case.created_at.desc(), Case.id.desc())
-        .limit(limit + 1)
+        .limit(limit)
     )
-    rows = list(session.execute(stmt).scalars().all())
-    has_more = len(rows) > limit
-    return rows[:limit], has_more
+    return list(session.execute(stmt).scalars().all())
 
 
 def update_case_status(
