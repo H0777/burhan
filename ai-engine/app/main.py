@@ -29,6 +29,10 @@ async def lifespan(app: FastAPI):
     print("[AI-Engine] AI Engine starting...")
     print(f"   Mode: {'API + Local' if settings.GEMINI_API_KEY else 'Local Only'}")
     print(f"   Model: {settings.LOCAL_MODEL_PATH}")
+    # R10 identity startup gate: APP_MODE must be explicit, and institutional
+    # mode requires a fully configured OIDC provider + on-chain RoleManager.
+    from app.config import validate_startup_config
+    validate_startup_config()
     from app.db.session import init_db
     try:
         init_db()

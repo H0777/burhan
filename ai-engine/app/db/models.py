@@ -70,6 +70,36 @@ class WalletBindingModel(Base):
     )
 
 
+class WalletChallengeModel(Base):
+    """
+    Single-use SIWE wallet-signature challenge (R10).
+
+    Persisted so a challenge survives process restarts and is consumed exactly
+    once via an atomic compare-and-swap. Every challenge is bound to the user
+    (sub), institution, SIWE domain and chain id it was issued for; `nonce` is
+    globally unique and `consumed_at` is the single-use marker.
+    """
+
+    __tablename__ = "wallet_challenges"
+
+    id = Column(String(64), primary_key=True)  # challenge_id (uuid4)
+    institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    sub = Column(String(128), nullable=False, index=True)
+    wallet_address = Column(String(42), nullable=False)
+    domain = Column(String(255), nullable=False)
+    chain_id = Column(Integer, nullable=False)
+    nonce = Column(String(64), nullable=False, unique=True)
+    message = Column(Text, nullable=False)
+    issued_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_wallet_challenges_inst_sub", "institution_id", "sub"),
+        Index("ix_wallet_challenges_inst_wallet", "institution_id", "wallet_address"),
+    )
+
+
 class Case(Base):
     __tablename__ = "cases"
 
@@ -391,6 +421,7 @@ class ReportRecord(Base):
 RLS_TABLES = [
     "memberships",
     "wallet_bindings",
+    "wallet_challenges",
     "cases",
     "case_events",
     "evidence_objects",

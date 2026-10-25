@@ -154,7 +154,7 @@ def test_token_with_invalid_audience_rejected(oidc_verifier, jwks_provider):
 def test_expired_token_rejected(oidc_verifier, jwks_provider):
     token = jwks_provider.create_signed_token(
         {"sub": "expired-user", "institution_id": INSTITUTION},
-        expires_in_seconds=-10,  # beyond the 60s skew
+        expires_in_seconds=-90,  # beyond the 60s clock skew
     )
     with pytest.raises(ValueError, match="expired"):
         oidc_verifier.verify_token(token)
@@ -257,11 +257,26 @@ def identity_db():
     engine.dispose()
 
 
-def test_resolve_identity_role_comes_from_membership(identity_db):
+def test_resolve_identity_role_comes_from_membership(identity_db, isolated_wallet_service):
     """resolve_identity: role/email come from the stored membership; wallet,
     participant_id and generation come from the stored binding. The JWT role
     claim is ignored completely."""
+    from datetime import datetime, timezone as tz
+
     from app.repositories.institution_repository import resolve_identity
+
+    isolated_wallet_service.repo.save_binding(
+        None,
+        BindingRecord(
+            institution_id=INSTITUTION,
+            sub="usr-resolve",
+            wallet_address="0x" + "3" * 40,
+            participant_id="0x" + "4" * 64,
+            role=RoleEnum.AUDITOR,
+            authorization_generation=3,
+            bound_at=datetime.now(tz.utc),
+        ),
+    )
 
     with identity_db() as session:
         session.add(Institution(id=INSTITUTION, name="Central Bank of Iraq"))
@@ -269,13 +284,6 @@ def test_resolve_identity_role_comes_from_membership(identity_db):
             Membership(
                 id="mem_resolve", institution_id=INSTITUTION, sub="usr-resolve",
                 role="AUDITOR", email="member@cbi.iq", is_active=True,
-            )
-        )
-        session.add(
-            WalletBindingModel(
-                id="wb_resolve", institution_id=INSTITUTION, sub="usr-resolve",
-                wallet_address="0x" + "3" * 40, participant_id="0x" + "4" * 64,
-                role="AUDITOR", authorization_generation=3,
             )
         )
         session.commit()
@@ -289,7 +297,7 @@ def test_resolve_identity_role_comes_from_membership(identity_db):
         assert ident.authorization_generation == 3
 
 
-def test_resolve_identity_without_membership_rejected(identity_db):
+def test_resolve_identity_without_membership_rejected(identity_db, isolated_wallet_service):
     from app.repositories.institution_repository import MembershipResolutionError, resolve_identity
 
     with identity_db() as session:
@@ -300,7 +308,7 @@ def test_resolve_identity_without_membership_rejected(identity_db):
             resolve_identity(session, claims)
 
 
-def test_resolve_identity_inactive_membership_rejected(identity_db):
+def test_resolve_identity_inactive_membership_rejected(identity_db, isolated_wallet_service):
     from app.repositories.institution_repository import MembershipResolutionError, resolve_identity
 
     with identity_db() as session:
@@ -317,7 +325,7 @@ def test_resolve_identity_inactive_membership_rejected(identity_db):
             resolve_identity(session, claims)
 
 
-def test_resolve_identity_unknown_membership_role_maps_to_none(identity_db):
+def test_resolve_identity_unknown_membership_role_maps_to_none(identity_db, isolated_wallet_service):
     """A membership with a role outside the RBAC enum resolves to NONE (fail-closed)."""
     from app.repositories.institution_repository import resolve_identity
 
@@ -334,6 +342,7 @@ def test_resolve_identity_unknown_membership_role_maps_to_none(identity_db):
             session, {"sub": "usr-weird", "iss": ISSUER, "institution_id": INSTITUTION}
         )
         assert ident.role == RoleEnum.NONE
+        assert ident.wallet_address is None  # no binding for this subject
 
 
 # -------------------------------------------------------------
@@ -537,6 +546,21 @@ def test_tenant_context_middleware_enforcement():
 
 from app.routes.v2.identity import router as identity_router
 from app.routes.v2.identity import set_oidc_verifier, set_wallet_service
+
+
+@pytest.fixture
+def isolated_wallet_service():
+    """A session-free in-memory wallet service injected as the singleton, so
+    resolve_identity's binding lookup never touches a real database."""
+    service = WalletBindingService(
+        repository=InMemoryWalletBindingRepo(),
+        domain="iraq-aml-audit.cbi.iq",
+        default_chain_id=31337,
+        ttl_seconds=300,
+    )
+    set_wallet_service(service)
+    yield service
+    set_wallet_service(None)
 
 
 def _identity_app() -> FastAPI:

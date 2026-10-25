@@ -1,19 +1,43 @@
 """
-OIDC Token Verification Service.
-Decodes, validates signatures against JWKS, and extracts institutional identity.
+OIDC Token Verification Service (R10).
+
+Verifies signature, issuer, audience, and the MANDATORY claim set (exp, iat,
+nbf, sub — plus aud via audience verification) against an allowlist of
+algorithms, with a 60 second clock skew. The verifier returns VERIFIED CLAIMS
+ONLY: it derives no role and no institutional identity. Roles come exclusively
+from the stored membership (resolve_identity), never from a JWT role claim.
+
+Failures are separated into two classes for the HTTP layer:
+  - ValueError           -> the token itself is invalid (401)
+  - OIDCProviderError    -> the identity provider / JWKS is unavailable (503)
 """
 
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 import jwt
-from jwt import PyJWKClient, InvalidTokenError, ExpiredSignatureError
+from jwt import (
+    ExpiredSignatureError,
+    InvalidTokenError,
+    PyJWKClient,
+    PyJWKClientError,
+)
 
-from app.schemas.identity import Identity, RoleEnum
+MANDATORY_CLAIMS = ("exp", "iat", "nbf", "sub")
+
+# Algorithm allowlist default: asymmetric RS256 only. Nothing symmetric or
+# "none" is ever accepted unless explicitly allowlisted by configuration.
+DEFAULT_ALGORITHMS = ["RS256"]
+DEFAULT_CLOCK_SKEW_SECONDS = 60
+
+
+class OIDCProviderError(Exception):
+    """The identity provider (JWKS endpoint) could not be reached or decoded."""
 
 
 class MockJWKSProvider:
     """
-    Test helper representing an institutional Identity Provider (IdP) with RSA keys.
+    Test fixture representing an institutional Identity Provider (IdP) with RSA
+    keys. SYNTHETIC KEYS ONLY — generated per test run, never deployed secrets.
     """
     def __init__(
         self,
@@ -54,8 +78,13 @@ class MockJWKSProvider:
 
 class OIDCVerifier:
     """
-    Validates JWT tokens against an OIDC Issuer.
-    Uses standard PyJWT verification (signature, exp, nbf, iss, aud).
+    Validates JWT tokens against an OIDC Issuer and returns the verified claims.
+
+    - algorithms: allowlist (default ["RS256"]); a token with any other alg is
+      rejected before any verification (prevents alg-confusion).
+    - clock_skew_seconds: leeway applied to exp/nbf/iat (default 60s per spec).
+    - exp/iat/nbf/sub are mandatory; aud is mandatory when audience checking is
+      configured (it always is: audience comes from settings).
     """
     def __init__(
         self,
@@ -63,33 +92,56 @@ class OIDCVerifier:
         audience: Optional[str] = None,
         jwks_url: Optional[str] = None,
         jwks_provider: Optional[MockJWKSProvider] = None,
+        algorithms: Optional[List[str]] = None,
+        clock_skew_seconds: int = DEFAULT_CLOCK_SKEW_SECONDS,
     ):
         self.jwks_provider = jwks_provider
         self.issuer = issuer or (jwks_provider.issuer if jwks_provider else None)
         self.audience = audience or (jwks_provider.audience if jwks_provider else None)
+        self.algorithms = list(algorithms) if algorithms else list(DEFAULT_ALGORITHMS)
+        self.clock_skew_seconds = clock_skew_seconds
         self.jwks_client = PyJWKClient(jwks_url) if jwks_url else None
 
-    def verify_token(self, token: str) -> Identity:
-        """
-        Verify signature, issuer, audience, and expiration.
-        Returns Identity object.
-        """
+    def _signing_key(self, token: str):
         try:
-            # 1. Retrieve signing key
             if self.jwks_provider:
-                signing_key = self.jwks_provider.get_public_key()
-            elif self.jwks_client:
-                signing_key = self.jwks_client.get_signing_key_from_jwt(token).key
-            else:
-                raise ValueError("No JWKS provider or JWKS URL configured")
+                return self.jwks_provider.get_public_key()
+            if self.jwks_client:
+                return self.jwks_client.get_signing_key_from_jwt(token).key
+        except PyJWKClientError as exc:
+            raise OIDCProviderError(f"Identity provider unreachable: {exc}") from exc
+        except jwt.PyJWKError as exc:
+            raise OIDCProviderError(f"Identity provider key error: {exc}") from exc
+        raise ValueError("No JWKS provider or JWKS URL configured")
 
-            # 2. Decode and verify standard claims
+    def verify_token(self, token: str) -> Dict[str, Any]:
+        """
+        Verify signature, issuer, audience, mandatory claims and expiration.
+        Returns the verified claim set (dict). Raises ValueError for invalid
+        tokens and OIDCProviderError when the provider is unavailable.
+        """
+        # 0. Algorithm allowlist is checked on the unverified header FIRST so a
+        #    hostile `alg` never reaches key selection or verification.
+        try:
+            header = jwt.get_unverified_header(token)
+        except InvalidTokenError as exc:
+            raise ValueError(f"Invalid token header: {exc}") from exc
+        alg = header.get("alg")
+        if alg not in self.algorithms:
+            raise ValueError(f"Token algorithm {alg!r} is not allowlisted")
+
+        # 1. Retrieve signing key (provider fixture or live JWKS client).
+        signing_key = self._signing_key(token)
+
+        # 2. Decode and verify signature + registered claims.
+        try:
             payload = jwt.decode(
                 token,
                 signing_key,
-                algorithms=["RS256"],
+                algorithms=self.algorithms,
                 audience=self.audience,
                 issuer=self.issuer,
+                leeway=self.clock_skew_seconds,
                 options={
                     "verify_signature": True,
                     "verify_exp": True,
@@ -97,6 +149,7 @@ class OIDCVerifier:
                     "verify_iat": True,
                     "verify_aud": True,
                     "verify_iss": True,
+                    "require": ["exp", "iat", "nbf", "sub", "aud", "iss"],
                 },
             )
         except ExpiredSignatureError:
@@ -105,35 +158,18 @@ class OIDCVerifier:
             raise ValueError("Invalid token issuer")
         except jwt.InvalidAudienceError:
             raise ValueError("Invalid token audience")
+        except jwt.MissingRequiredClaimError as exc:
+            raise ValueError(f"Token missing required claim: {exc.claim}")
         except InvalidTokenError as e:
-            raise ValueError(f"Invalid token: {str(e)}")
+            raise ValueError(f"Invalid token: {e}")
 
-        # 3. Extract and map identity claims
-        sub = payload.get("sub")
-        if not sub:
-            raise ValueError("Token missing 'sub' claim")
+        # 3. Defence in depth: mandatory claims must be present and non-empty
+        #    (require would already have caught absence; this also catches
+        #    empty-string subs and guarantees the invariant regardless of the
+        #    PyJWT version in use).
+        for claim in MANDATORY_CLAIMS:
+            value = payload.get(claim)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                raise ValueError(f"Token missing required claim '{claim}'")
 
-        institution_id = payload.get("institution_id")
-        if not institution_id:
-            raise ValueError("Token missing 'institution_id' claim")
-
-        raw_role = payload.get("role", "NONE").upper()
-        try:
-            role = RoleEnum(raw_role)
-        except ValueError:
-            role = RoleEnum.NONE
-
-        permissions = payload.get("permissions", [])
-        email = payload.get("email")
-
-        return Identity(
-            sub=str(sub),
-            issuer=str(payload.get("iss", self.issuer)),
-            institution_id=str(institution_id),
-            role=role,
-            permissions=[str(p) for p in permissions] if isinstance(permissions, list) else [],
-            email=str(email) if email else None,
-            participant_id=payload.get("participant_id"),
-            wallet_address=payload.get("wallet_address"),
-            authorization_generation=payload.get("authorization_generation"),
-        )
+        return payload
