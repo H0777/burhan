@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from './AuthProvider.jsx'
 import { AUTH_CALLBACK_PATH } from './oidcClient.js'
 

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { getVerifiedDeployment, OperationResult } from '../config/runtime.js'
-import { connectWallet } from '../utils/contract.js'
 
 describe('Runtime Config & Deployment Verification (T08)', () => {
   it('should verify deployment when contracts have deployed bytecode', async () => {

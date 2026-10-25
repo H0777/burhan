@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 
 // R13: aiClient derives its base URL from the resolved RuntimeConfig; these
 // tests exercise it post-load with a same-origin demo config.
