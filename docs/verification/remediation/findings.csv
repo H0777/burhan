@@ -1,12 +1,12 @@
 id,priority,status,evidence_type,source_paths,task_ids,red_test,green_test,build_id,proof_path
-F01,P0,OPEN,code_review,contracts/access/RoleManager.sol,R01,TBD-R01,TBD-R01,,
-F02,P0,OPEN,code_review,contracts/AuditEngine.sol,R02;R03,TBD-R02,TBD-R03,,
-F03,P0,OPEN,code_review,contracts/access/MultiSigApproval.sol,R02;R03,TBD-R02,TBD-R03,,
+F01,P0,FIXED_PENDING_VALIDATION,code_review,contracts/access/RoleManager.sol,R01,test/security/NoTestBackdoor.test.js:outsider_cannot_call_generation_setter,test/security/NoTestBackdoor.test.js:production_abi_has_no_test_mutator,ede9f56,docs/verification/remediation/R01.md
+F02,P0,FIXED_PENDING_VALIDATION,code_review,contracts/AuditEngine.sol,R02;R03,test/security/TimelockAndActionBinding.test.js:admin_cannot_bypass_after_bootstrap,test/security/TimelockAndActionBinding.test.js:admin_cannot_bypass_after_bootstrap,d3d62b1,docs/verification/remediation/R03.md
+F03,P0,FIXED_PENDING_VALIDATION,code_review,contracts/access/MultiSigApproval.sol,R02;R03,test/security/TimelockAndActionBinding.test.js:timelock_boundaries,test/security/TimelockAndActionBinding.test.js:timelock_boundaries,d3d62b1,docs/verification/remediation/R03.md
 F04,P0,OPEN,code_review,ai-engine/app/services/evidence_verifier.py;ai-engine/app/services/evm_rpc_client.py,R07,TBD-R07,TBD-R07,,
 F05,P0,OPEN,dynamic_observation,scripts/verify-evidence-export.py;ai-engine/app/services/evidence_export.py,R05;R09,TBD-R05,TBD-R05,,
 F06,P0,OPEN,dynamic_observation,ai-engine/app/workers/evidence_anchor.py,R08,TBD-R08,TBD-R08,,
 F07,P1,OPEN,code_review,ai-engine/app/routes/v2/cases.py;ai-engine/app/security/tenant_context.py,R11;R12,TBD-R11,TBD-R11,,
-F08,P1,OPEN,measurement,contracts/AuditEngine.sol;deployments/deployment-manifest.json,R03;R04,TBD-R03,TBD-R04,,
+F08,P1,FIXED_PENDING_VALIDATION,measurement,contracts/AuditEngine.sol;deployments/deployment-manifest.json,R03;R04,test/security/DeploymentInvariants.test.js:size_gate_rejects_24577_and_24001_and_accepts_24000,test/security/DeploymentInvariants.test.js:fresh_standard_deployment,e0f9a60,docs/verification/remediation/R04.md
 F09,P1,OPEN,code_review,frontend/src/config/runtime.js;frontend/src/api/client.js,R13;R14,TBD-R13,TBD-R13,,
 F10,P1,OPEN,code_review,ai-engine/app/db/session.py;ai-engine/app/security/oidc.py;ai-engine/app/security/tenant_context.py,R10;R11,TBD-R10,TBD-R10,,
 F11,P1,OPEN,code_review,ai-engine/app/routes/v2/health.py;ai-engine/app/main.py,R14;R15,TBD-R14,TBD-R14,,
