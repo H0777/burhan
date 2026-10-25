@@ -197,13 +197,14 @@ def fail_claimed(
     lease_token: str,
     error_message: str,
     now: datetime,
-    clock=None,
+    force_dead: bool = False,
 ) -> Optional[str]:
     """Record a failure for a claimed item under its owner token.
 
     Applies the 5/30/120/600/1800 backoff ladder; the FIFTH failure moves
     the item to DEAD with the reason and an explicit recorded reschedule
-    timestamp (operator review), still under the owner token. Returns the
+    timestamp (operator review). Terminal contradictions (payload conflicts)
+    pass force_dead=True: DEAD immediately, same bookkeeping. Returns the
     resulting status ("FAILED" or "DEAD") or None when the token did not
     own the row.
     """
@@ -216,7 +217,7 @@ def fail_claimed(
     attempts = row.attempts
     row.last_error = error_message
     row.error_message = error_message
-    if attempts >= MAX_ATTEMPTS:
+    if force_dead or attempts >= MAX_ATTEMPTS:
         reschedule_at = now + timedelta(seconds=RETRY_BACKOFFS[-1])
         row.status = "DEAD"
         row.next_attempt_at = reschedule_at

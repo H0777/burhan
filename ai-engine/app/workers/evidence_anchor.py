@@ -66,21 +66,41 @@ class CrashSimulated(Exception):
 class EvidenceAnchorWorker:
     def __init__(
         self,
-        chain_sender: ChainSender,
+        chain_sender: Optional[ChainSender] = None,
         worker_id: Optional[str] = None,
         deployment_id: str = "",
         severity_default: str = "HIGH",
+        chain_sender_factory: Optional[Callable[[str], ChainSender]] = None,
     ):
-        # No optional RPC in the institutional constructor.
-        if chain_sender is None:
+        # No optional RPC in the institutional constructor: exactly one of a
+        # single-tenant sender or a per-institution sender factory is required.
+        if chain_sender is None and chain_sender_factory is None:
             raise ValueError(
-                "EvidenceAnchorWorker requires a provisioned ChainSender — "
-                "there is no optional/mock RPC path in the anchor pipeline"
+                "EvidenceAnchorWorker requires a provisioned ChainSender (or a "
+                "per-institution chain_sender_factory) — there is no optional/mock "
+                "RPC path in the anchor pipeline"
             )
+        if chain_sender is not None and chain_sender_factory is not None:
+            raise ValueError("pass either chain_sender or chain_sender_factory, not both")
         self.chain_sender = chain_sender
+        # The anchoring signer is PER INSTITUTION: nonce allocation is
+        # tenant-scoped under RLS (other tenants' chain_submissions rows are
+        # invisible), so two tenants sharing one signer would read a stale
+        # allocation and collide on unique(chain_id, signer, nonce). A signer
+        # reused across tenants is detected honestly as external nonce
+        # consumption and PAUSES new sends.
+        self.chain_sender_factory = chain_sender_factory
         self.worker_id = worker_id or f"anchor_{uuid.uuid4().hex[:8]}"
         self.deployment_id = deployment_id
         self.severity_default = severity_default
+
+    def _sender_for(self, institution_id: str) -> ChainSender:
+        if self.chain_sender is not None:
+            return self.chain_sender
+        sender = self.chain_sender_factory(institution_id)
+        if sender is None:
+            raise ValueError(f"chain_sender_factory returned no sender for {institution_id}")
+        return sender
 
     # ------------------------------------------------------------------
     # cycle
@@ -167,6 +187,7 @@ class EvidenceAnchorWorker:
     # ------------------------------------------------------------------
 
     def _process_item(self, session_factory, item, institution_id, clock, crash_before, stats):
+        sender = self._sender_for(institution_id)
         if item["event_type"] != OUTBOX_EVENT:
             session = session_factory()
             with self._tenant(session, institution_id):
@@ -208,7 +229,7 @@ class EvidenceAnchorWorker:
                 return
 
             # -- Phase 2: chain dedupe BEFORE any re-send -----------------
-            on_chain_digest = self.chain_sender.manifest_digest_on_chain(request_id)
+            on_chain_digest = sender.manifest_digest_on_chain(request_id)
             if on_chain_digest and on_chain_digest.lower() != "0x" + manifest_digest_hex.lower():
                 self._fail(session, institution_id, outbox_id, token,
                            f"request {request_id} already anchored with a different manifest digest",
@@ -229,7 +250,7 @@ class EvidenceAnchorWorker:
                 return
 
             # -- Phase 4: prepare + persist raw tx, COMMIT, broadcast ------
-            call = self.chain_sender.build_call(
+            call = sender.build_call(
                 "EVIDENCE_ATTESTED",
                 {
                     "contract_address": binding.contract_address,
@@ -242,7 +263,7 @@ class EvidenceAnchorWorker:
                 },
             )
             with self._tenant(session, institution_id):
-                submission = self.chain_sender.prepare_and_persist(
+                submission = sender.prepare_and_persist(
                     session, binding, call, request_id=request_id, now=clock()
                 )
             # signed raw tx + tx_hash + nonce are now DURABLE (committed).
@@ -251,7 +272,7 @@ class EvidenceAnchorWorker:
                 raise CrashSimulated("after_prepare_commit")
 
             if submission.status == "SIGNED":
-                self.chain_sender.broadcast(submission, now=clock())  # I/O outside tx
+                sender.broadcast(submission, now=clock())  # I/O outside tx
                 with self._tenant(session, institution_id):
                     pass  # commits the BROADCAST status + broadcast_at
                 stats["submitted"] += 1
@@ -265,7 +286,7 @@ class EvidenceAnchorWorker:
 
             # -- Phase 5: reconcile to receipt ----------------------------
             with self._tenant(session, institution_id):
-                state = self.chain_sender.reconcile(submission, now=clock(), session=session)
+                state = sender.reconcile(submission, now=clock(), session=session)
             if crash_before == "after_receipt_before_commit" and state == SubmissionState.CONFIRMED:
                 session.close()
                 raise CrashSimulated("after_receipt_before_commit")
@@ -323,6 +344,7 @@ class EvidenceAnchorWorker:
         remembered in case_incident_mappings — never an incident_id=1 guess."""
         case_id = payload["case_id"]
         ref_hash = case_reference_hash(binding.chain_id, binding.contract_address, institution_id, case_id)
+        sender = self._sender_for(institution_id)
 
         session = session_factory()
         try:
@@ -337,11 +359,11 @@ class EvidenceAnchorWorker:
             if mapping is not None:
                 return int(mapping.incident_id)
 
-            existing = self.chain_sender.incident_for_case_reference(ref_hash)
+            existing = sender.incident_for_case_reference(ref_hash)
             if existing:
                 incident_id = existing
             else:
-                call = self.chain_sender.build_call(
+                call = sender.build_call(
                     "CASE_INCIDENT",
                     {
                         "contract_address": binding.contract_address,
@@ -354,18 +376,18 @@ class EvidenceAnchorWorker:
                     f"case-incident:{binding.deployment_id}:{institution_id}:{case_id}"
                 )
                 with self._tenant(session, institution_id):
-                    submission = self.chain_sender.prepare_and_persist(
+                    submission = sender.prepare_and_persist(
                         session, binding, call, request_id=request_id, now=clock()
                     )
                 if submission.status == "SIGNED":
-                    self.chain_sender.broadcast(submission, now=clock())
+                    sender.broadcast(submission, now=clock())
                     with self._tenant(session, institution_id):
                         pass
                 with self._tenant(session, institution_id):
-                    state = self.chain_sender.reconcile(submission, now=clock(), session=session)
+                    state = sender.reconcile(submission, now=clock(), session=session)
                 if state != SubmissionState.CONFIRMED:
                     return None  # the evidence item's retry ladder re-drives this
-                incident_id = self.chain_sender.incident_for_case_reference(ref_hash)
+                incident_id = sender.incident_for_case_reference(ref_hash)
                 if not incident_id:
                     return None
                 with self._tenant(session, institution_id):
@@ -388,8 +410,9 @@ class EvidenceAnchorWorker:
     def _verify_and_anchor(self, session, institution_id, payload, submission, manifest_digest_hex) -> None:
         """ANCHORED only after receipt success + depth + canonical block AND
         the on-chain entry matches the stored manifest claim."""
+        sender = self._sender_for(institution_id)
         request_id = payload["anchor_request_id"]
-        on_chain = self.chain_sender.evidence_on_chain(request_id)
+        on_chain = sender.evidence_on_chain(request_id)
         if not on_chain:
             raise RuntimeError(
                 f"receipt confirmed for {submission.tx_hash} but "
@@ -410,7 +433,8 @@ class EvidenceAnchorWorker:
         )
 
     def _finish_from_chain(self, session, institution_id, payload) -> None:
-        on_chain = self.chain_sender.evidence_on_chain(payload["anchor_request_id"])
+        sender = self._sender_for(institution_id)
+        on_chain = sender.evidence_on_chain(payload["anchor_request_id"])
         evidence_repository.update_anchor_status(
             session=session,
             institution_id=institution_id,
@@ -427,7 +451,9 @@ class EvidenceAnchorWorker:
         try:
             with self._tenant(session, institution_id):
                 message = f"DEAD (terminal): {reason}" if dead else reason
-                result = outbox_repository.fail_claimed(session, outbox_id, token, message, clock())
+                result = outbox_repository.fail_claimed(
+                    session, outbox_id, token, message, clock(), force_dead=dead,
+                )
         except Exception as exc:  # recording a failure must never mask it
             logger.error("failed to record failure for %s: %s", outbox_id, exc)
             return

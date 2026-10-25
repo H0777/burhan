@@ -104,7 +104,14 @@ def selector(signature: str) -> str:
 def encode_call(signature: str, types: list, args: tuple) -> str:
     import eth_abi
 
-    return selector(signature) + eth_abi.encode(types, args).hex()
+    # eth_abi 5.x wants raw bytes for bytesN — accept "0x..." hex strings.
+    normalized = tuple(
+        bytes.fromhex(a[2:] if a.startswith("0x") else a)
+        if t.startswith("bytes") and isinstance(a, str)
+        else a
+        for t, a in zip(types, args)
+    )
+    return selector(signature) + eth_abi.encode(types, normalized).hex()
 
 
 def case_reference_hash(chain_id: int, contract_address: str, institution_id: str, case_id: str) -> str:
@@ -115,10 +122,11 @@ def case_reference_hash(chain_id: int, contract_address: str, institution_id: st
 
     inst_hash = keccak256(institution_id.encode("utf-8"))
     case_hash = keccak256(case_id.encode("utf-8"))
-    return "0x" + eth_abi.encode(
+    encoded = eth_abi.encode(
         ["uint256", "address", "bytes32", "bytes32"],
         [chain_id, contract_address, inst_hash, case_hash],
-    ).hex()
+    )
+    return "0x" + keccak256(encoded).hex()
 
 
 def payload_digest(call: Dict[str, Any]) -> str:
@@ -250,23 +258,27 @@ class ChainSender:
 
         chain_pending = int(self.adapter.eth_get_transaction_count(self.signer_address, "pending"))
         if allocated_max is None:
-            next_nonce = chain_pending
-        else:
-            next_nonce = allocated_max + 1
-            if chain_pending > allocated_max + 1:
-                # A nonce beyond our persisted set was consumed by someone
-                # else: the signer address is exclusive to this service, so
-                # this is a compromise/misconfiguration — pause new sends.
+            # We have never persisted a submission for this signer, yet the
+            # chain already consumed nonces: someone else used the exclusive
+            # signer address. Pause instead of allocating on top of it.
+            if chain_pending > 0:
                 self._pause(
-                    f"nonce {allocated_max + 1}..{chain_pending - 1} consumed externally "
-                    f"(chain pending {chain_pending}, allocated max {allocated_max})"
+                    f"nonce 0..{chain_pending - 1} consumed externally before any "
+                    f"persisted submission (chain pending {chain_pending})"
                 )
                 raise NonceConsumedExternallyError(self._paused_reason or "nonce consumed externally")
+            return 0
 
-        # Persisted allocation must never trail the chain: a nonce we
-        # allocated but whose row was lost would collide on-chain.
-        if chain_pending > next_nonce:
-            next_nonce = chain_pending
+        next_nonce = allocated_max + 1
+        if chain_pending > allocated_max + 1:
+            # A nonce beyond our persisted set was consumed by someone else:
+            # the signer address is exclusive to this service, so this is a
+            # compromise/misconfiguration — pause new sends.
+            self._pause(
+                f"nonce {allocated_max + 1}..{chain_pending - 1} consumed externally "
+                f"(chain pending {chain_pending}, allocated max {allocated_max})"
+            )
+            raise NonceConsumedExternallyError(self._paused_reason or "nonce consumed externally")
         return next_nonce
 
     # -- prepare ----------------------------------------------------------
@@ -477,7 +489,8 @@ class ChainSender:
                 return SubmissionState.STUCK
             return SubmissionState.PENDING
 
-        status = int(receipt.get("status", 0))
+        raw_status = receipt.get("status", 0)
+        status = int(raw_status, 16) if isinstance(raw_status, str) else int(raw_status)
         if status == 0:
             submission.status = RECEIPT_STATUS_ZERO
             submission.receipt_status = 0
