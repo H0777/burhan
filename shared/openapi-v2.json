@@ -2121,6 +2121,38 @@
             }
           },
           {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
             "in": "header",
             "name": "Authorization",
             "required": false,
@@ -3623,7 +3655,7 @@
     },
     "/api/v2/wallet/challenge": {
       "post": {
-        "description": "Issues a single-use EIP-4361 SIWE challenge bound to the user's institution and subject.",
+        "description": "Issues a single-use EIP-4361 SIWE challenge bound to the user's institution,\nsubject, domain and chain, persisted in PostgreSQL.",
         "operationId": "issue_wallet_challenge_api_v2_wallet_challenge_post",
         "parameters": [
           {
@@ -3683,7 +3715,7 @@
     },
     "/api/v2/wallet/verify": {
       "post": {
-        "description": "Verifies an EIP-191 signature over the SIWE challenge and establishes or updates\ninstitutional wallet binding with an incremented authorization generation.",
+        "description": "Verifies an EIP-191 signature over the persisted single-use SIWE challenge\n(atomic compare-and-swap consumption), proves the wallet is an active\non-chain participant (RoleManager), and establishes or rotates the\ninstitutional wallet binding with the on-chain authorization generation.",
         "operationId": "verify_wallet_binding_api_v2_wallet_verify_post",
         "parameters": [
           {
