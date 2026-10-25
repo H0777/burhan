@@ -151,14 +151,17 @@ def seed_outbox(owner_engine, tenant_id: str, n: int) -> list[str]:
     return ids
 
 
-def fetch_outbox(owner_engine, tenant_id: str, outbox_id: str) -> Outbox:
-    OwnerSession = sessionmaker(bind=owner_engine)
+def fetch_outbox(owner_engine, tenant_id: str, outbox_id: str):
+    """Owner-role read INSIDE the tenant context (FORCEd RLS applies to the
+    owner too; the honest read goes through the tenant policy)."""
+    OwnerSession = sessionmaker(bind=owner_engine, expire_on_commit=False)
     with OwnerSession() as session:
-        row = session.execute(
-            text("SELECT status, attempts, lease_owner, lease_token, lease_expires_at, last_error "
-                 "FROM outbox WHERE id = :i"),
-            {"i": outbox_id},
-        ).first()
+        with tenant_transaction(session, tenant_id):
+            row = session.execute(
+                text("SELECT status, attempts, lease_owner, lease_token, lease_expires_at, last_error "
+                     "FROM outbox WHERE id = :i"),
+                {"i": outbox_id},
+            ).first()
     return row
 
 
@@ -172,8 +175,9 @@ def test_two_workers_claim_disjoint(pg_urls, tenant, app_engine):
     ids = seed_outbox(app_engine, tenant, 4)
     clock = FakeClock()
 
-    AppSession = sessionmaker(bind=app_engine)
-    results: dict[str, list] = {"w1": [], "w2": []}
+    AppSession = sessionmaker(bind=app_engine, expire_on_commit=False)
+    workers = ("worker_r08_a", "worker_r08_b")
+    results: dict[str, list] = {w: [] for w in workers}
     barrier = threading.Barrier(3)
 
     def claim(worker: str):
@@ -199,15 +203,15 @@ def test_two_workers_claim_disjoint(pg_urls, tenant, app_engine):
     t1.join(timeout=30)
     t2.join(timeout=30)
 
-    claimed_ids = sorted(o.id for o in results["w1"] + results["w2"])
+    claimed_ids = sorted(o.id for o in results[workers[0]] + results[workers[1]])
     assert claimed_ids == sorted(ids), (
         f"SKIP LOCKED claim must partition all rows once: got {claimed_ids}"
     )
-    a = {o.id for o in results["w1"]}
-    b = {o.id for o in results["w2"]}
+    a = {o.id for o in results[workers[0]]}
+    b = {o.id for o in results[workers[1]]}
     assert a.isdisjoint(b), f"workers claimed the same rows: {a & b}"
 
-    for o in results["w1"]:
+    for o in results[workers[0]]:
         assert o.status == "PROCESSING"
         assert o.lease_owner == "worker_r08_a"
         assert o.lease_token
@@ -223,7 +227,7 @@ def test_expired_lease_reclaimed(pg_urls, tenant, app_engine):
 
     ids = seed_outbox(app_engine, tenant, 1)
     clock = FakeClock()
-    AppSession = sessionmaker(bind=app_engine)
+    AppSession = sessionmaker(bind=app_engine, expire_on_commit=False)
 
     s1 = AppSession()
     with tenant_transaction(s1, tenant):
@@ -266,7 +270,7 @@ def test_wrong_owner_cannot_complete(pg_urls, tenant, app_engine):
 
     ids = seed_outbox(app_engine, tenant, 1)
     clock = FakeClock()
-    AppSession = sessionmaker(bind=app_engine)
+    AppSession = sessionmaker(bind=app_engine, expire_on_commit=False)
 
     s1 = AppSession()
     with tenant_transaction(s1, tenant):
@@ -320,11 +324,23 @@ def test_no_rpc_never_anchors(pg_urls, tenant, app_engine):
         def eth_chain_id(self):
             raise ConnectionError("RPC connection refused (test)")
 
+        def get_manifest_digest(self, request_id):
+            raise ConnectionError("RPC connection refused (test)")
+
+    from eth_account import Account
+
+    from app.services.chain_sender import ChainSender, SignerCredentials
+
     ids = seed_outbox(app_engine, tenant, 1)
     clock = FakeClock()
-    worker = EvidenceAnchorWorker(chain_sender=None, rpc_adapter=DeadAdapter())
+    sender = ChainSender(
+        adapter=DeadAdapter(),
+        credentials=SignerCredentials(Account.create().key.hex()),
+        clock=clock,
+    )
+    worker = EvidenceAnchorWorker(chain_sender=sender)
     stats = worker.process_cycle(
-        session_factory=lambda: _scoped_session(app_engine, tenant),
+        session_factory=lambda: _scoped_session(app_engine),
         institution_id=tenant,
         clock=clock,
     )
@@ -333,7 +349,7 @@ def test_no_rpc_never_anchors(pg_urls, tenant, app_engine):
     assert row.status == "FAILED", f"dead RPC must leave FAILED, got {row.status}"
     assert row.last_error, "failure reason must be recorded"
     # next retry only after the first backoff (5s), driven by the injected clock
-    AppSession = sessionmaker(bind=app_engine)
+    AppSession = sessionmaker(bind=app_engine, expire_on_commit=False)
     with AppSession() as session:
         with tenant_transaction(session, tenant):
             ob = session.get(Outbox, ids[0])
@@ -364,6 +380,6 @@ class _ScopedSession:
         return self._session
 
 
-def _scoped_session(app_engine, tenant):
-    AppSession = sessionmaker(bind=app_engine)
+def _scoped_session(app_engine):
+    AppSession = sessionmaker(bind=app_engine, expire_on_commit=False)
     return AppSession()
