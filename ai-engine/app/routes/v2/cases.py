@@ -1,8 +1,15 @@
 """
 Case Lifecycle Management and Governance Route (V2)
-Cyber-Forensic Auditing Framework - Specification §7 (R01, R08, R09, R15)
+Cyber-Forensic Auditing Framework - Specification §7, §8 (R01, R08, R09, R12, R15)
 Provides endpoints for institutional case creation, state transitions (Four-Eyes governance),
 pagination, and case timeline details.
+
+R12 (closes F07): every institutional path runs inside
+`with tenant_transaction(db, identity.institution_id)` — the R10 signature
+(session, institution_id) — so the transaction-local RLS context
+(app.current_institution_id) is always set before any institutional query.
+The HTTP request scope (method + path) is passed into the service so idempotency
+keys are reserved per institution+sub+method+path+key.
 """
 
 from typing import Optional
@@ -11,6 +18,7 @@ from fastapi import (
     Depends,
     Header,
     Query,
+    Request,
     UploadFile,
     File,
     HTTPException,
@@ -30,6 +38,7 @@ from app.schemas.cases import (
 from app.services.case_service import (
     CaseService,
     CaseNotFoundError,
+    IdempotencyConflictError,
     VersionConflictError,
     SelfApprovalProhibitedError,
     UnauthorizedRoleError,
@@ -65,13 +74,14 @@ def set_case_service(svc: Optional[CaseService]) -> None:
 )
 def create_case(
     req: CaseCreateRequest,
+    request: Request,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
     service: CaseService = Depends(get_case_service),
 ):
     try:
-        with tenant_transaction(identity) as session:
+        with tenant_transaction(db, identity.institution_id) as session:
             return service.create_case(
                 session=session,
                 identity=identity,
@@ -81,14 +91,14 @@ def create_case(
                 severity=req.severity,
                 assigned_to_sub=req.assigned_to_sub,
                 idempotency_key=idempotency_key,
+                request_scope=(request.method, request.url.path),
             )
     except UnauthorizedRoleError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except CaseServiceError as exc:
-        msg = str(exc)
-        if "conflict" in msg.lower():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.get(
@@ -97,19 +107,28 @@ def create_case(
     summary="List institutional cases with cursor pagination",
 )
 def list_cases(
+    request: Request,
     limit: int = Query(50, ge=1, le=100),
     cursor: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    severity_filter: Optional[str] = Query(None, alias="severity"),
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
     service: CaseService = Depends(get_case_service),
 ):
-    with tenant_transaction(identity) as session:
-        return service.list_cases(
-            session=session,
-            identity=identity,
-            limit=limit,
-            cursor=cursor,
-        )
+    try:
+        with tenant_transaction(db, identity.institution_id) as session:
+            return service.list_cases(
+                session=session,
+                identity=identity,
+                limit=limit,
+                cursor=cursor,
+                status=status_filter,
+                severity=severity_filter,
+            )
+    except CaseServiceError as exc:
+        # Invalid / foreign-institution / filter-mismatched cursors -> 400.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg_of(exc))
 
 
 @router.get(
@@ -124,7 +143,7 @@ def get_case_detail(
     service: CaseService = Depends(get_case_service),
 ):
     try:
-        with tenant_transaction(identity) as session:
+        with tenant_transaction(db, identity.institution_id) as session:
             return service.get_case(
                 session=session,
                 identity=identity,
@@ -142,13 +161,14 @@ def get_case_detail(
 def transition_case(
     case_id: str,
     req: CaseTransitionRequest,
+    request: Request,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
     service: CaseService = Depends(get_case_service),
 ):
     try:
-        with tenant_transaction(identity) as session:
+        with tenant_transaction(db, identity.institution_id) as session:
             return service.transition_case(
                 session=session,
                 identity=identity,
@@ -158,17 +178,23 @@ def transition_case(
                 reason=req.reason,
                 new_assignee_sub=req.new_assignee_sub,
                 idempotency_key=idempotency_key,
+                request_scope=(request.method, request.url.path),
             )
     except CaseNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except VersionConflictError as exc:
+        # Stale expected_version lost the SQL compare-and-swap: 409.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except IdempotencyConflictError as exc:
+        # Same key, different semantic payload (e.g. new_assignee_sub): 409.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except SelfApprovalProhibitedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except UnauthorizedRoleError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
     except InvalidTransitionError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        # A transition that contradicts the case's current state conflicts with it.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except CaseServiceError as exc:
