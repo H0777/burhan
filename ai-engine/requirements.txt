@@ -16,3 +16,4 @@ eth_account>=0.11.0
 sqlalchemy>=2.0.0
 psycopg[binary]>=3.1.0
 python-multipart>=0.0.9
+alembic>=1.20.1

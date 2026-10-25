@@ -383,7 +383,11 @@ class ReportRecord(Base):
     )
 
 
-# List of tables requiring PostgreSQL Row-Level Security
+# List of tables requiring PostgreSQL Row-Level Security.
+# R11: the authoritative DDL lives in the alembic baseline migration
+# (app/db/migrations/versions/r11_baseline.py); this list is the models-side
+# enumeration of the same surface (institutions is global and handled there
+# with its own explicit read-only policy).
 RLS_TABLES = [
     "memberships",
     "wallet_bindings",
@@ -402,10 +406,20 @@ RLS_TABLES = [
     "checkpoints",
 ]
 
+# Global table: RLS enabled with an explicit policy — never assumed safe merely
+# because it has no institution_id (R11).
+GLOBAL_POLICY_TABLES = {
+    "institutions": ("institutions_read_all", "SELECT", "USING (true)"),
+}
+
 
 def generate_rls_sql() -> list[str]:
     """
-    Generates PostgreSQL RLS statements for all tenant-scoped tables.
+    Generates the PostgreSQL RLS statements mirroring the alembic baseline:
+    ENABLE + FORCE + tenant policy on every institutional table, plus the
+    explicit read-only policy on the global institutions table. (Kept for the
+    SQLite logic tests and as documentation of the RLS surface; on PostgreSQL
+    the policies are applied by migrations, not at runtime.)
     """
     statements = []
     for table in RLS_TABLES:
@@ -416,5 +430,10 @@ def generate_rls_sql() -> list[str]:
             f"CREATE POLICY tenant_isolation_policy ON {table} "
             f"USING (institution_id = NULLIF(current_setting('app.current_institution_id', true), '')) "
             f"WITH CHECK (institution_id = NULLIF(current_setting('app.current_institution_id', true), ''));"
+        )
+    for table, (policy_name, cmd, using) in GLOBAL_POLICY_TABLES.items():
+        statements.append(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;")
+        statements.append(
+            f"CREATE POLICY {policy_name} ON {table} FOR {cmd} {using};"
         )
     return statements
