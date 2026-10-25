@@ -1,7 +1,7 @@
 {
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.1.0",
   "title": "Empirical Evaluation Protocol for Hybrid AML Anomaly Detection",
-  "description": "Governs subject-isolated, temporally partitioned experiments comparing rules-based, ML-only, and hybrid models",
+  "description": "Governs temporal and participant-disjoint experiments comparing rules-based, ML-only, and hybrid models. Splits are cutoff-based (R17): cutoffs are fixed here BEFORE training and are never derived from labels or result quality.",
   "seeds": [42, 43, 44],
   "default_seed": 42,
   "dataset": {
@@ -9,14 +9,39 @@
     "name": "IQD-AML-2026",
     "currency": "IQD",
     "scale": 3,
-    "total_records": 10000
+    "total_records": 10000,
+    "nature": "synthetic"
   },
   "splits": {
-    "train_ratio": 0.70,
-    "val_ratio": 0.15,
-    "test_ratio": 0.15,
-    "temporal_split": true,
-    "subject_isolation": true
+    "policy": "temporal_participant_disjoint",
+    "train_end": "2026-01-02T00:00:00Z",
+    "validation_end": "2026-01-04T00:00:00Z",
+    "cutoff_source": "fixed in this config before training; never inferred from labels, split sizes, or evaluation results",
+    "min_split_size": 100,
+    "require_both_classes": true,
+    "random_split_fallback_allowed": false,
+    "drop_reason_codes": [
+      "TRAIN_PARTICIPANT_FUTURE_RECORD",
+      "PARTICIPANT_CROSSES_VALIDATION_TEST_BOUNDARY"
+    ],
+    "policy_detail": {
+      "train": "records with occurred_at <= train_end",
+      "validation": "ONLY participants with first_seen > train_end AND last_seen <= validation_end, and their in-window records",
+      "test": "ONLY participants with first_seen > validation_end, and their later records",
+      "later_records_of_train_participants": "dropped, never migrated to compensate size",
+      "participants_crossing_validation_test": "enter neither evaluation set; every drop is recorded with a reason"
+    }
+  },
+  "activation_policy": {
+    "thresholds_frozen_before_test": true,
+    "decision_thresholds": {
+      "rules_min_score": 50.0,
+      "hybrid_min_score": 0.45
+    },
+    "hybrid_activation_requires": "SUPPORTED verdict computed on the strict temporal+participant-disjoint test split under acceptance_gates",
+    "on_insufficient_data": "REMAIN_RULES_ONLY",
+    "on_failed_gates": "REMAIN_RULES_ONLY",
+    "post_test_threshold_tuning_allowed": false
   },
   "features": [
     "amount_minor",

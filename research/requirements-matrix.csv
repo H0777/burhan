@@ -11,7 +11,7 @@ R09,Architecture,Transactional outbox pattern and reorg-resilient indexing worke
 R10,API,Standardized OpenAPI V2 contract with zero-drift CI check,§7,"main.py, shared/openapi-v2.json",check-openapi.py,G1 / G2,VERIFIED
 R11,Performance,Single-query indexed pagination replacing legacy N-RPC loop,§7,"routes/v2/transactions.py, Dashboard.jsx",trust-flow.spec.js; performance.md,G2 / G3,VERIFIED
 R12,ML/AI,Authoritative server-side feature derivation and calibrated AML scoring,§8,"feature_service.py, assessment_service.py",test_authoritative_scoring.py,G3,IN_PROGRESS
-R13,Research,Reproducible empirical benchmark with dataset manifest and split isolation,§8 & §10,"protocol.json, run_experiments.py",test_splits.py; test_model_registry.py,G3,IN_PROGRESS
+R13,Research,Reproducible empirical benchmark with dataset manifest and split isolation,§8 & §10,"protocol.json, run_experiments.py, schemas/split-manifest.schema.json","test_splits.py; test_leakage.py; test_model_registry.py",G3,IN_PROGRESS
 R14,Security,Zero raw PII or sensitive keys on-chain; private local storage,§4 & §5,"evidence_store.py, models.py",test_evidence_store.py; test_llm_privacy.py,G2 / G3,VERIFIED
 R15,Compliance,Central Bank of Iraq (CBI) reporting threshold rules and AML legal notice,§6 & §7,"Dashboard.jsx, policies.py",trust-flow.spec.js; test_policy_service.py,G2 / G3,VERIFIED
 R16,Operations,Disaster recovery, backup/restore drills, RPO<=15min and RTO<=2h,§9,"ops/backup.ps1, ops/restore.ps1",recovery-drill.md,G4,PLANNED

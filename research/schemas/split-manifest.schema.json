@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SplitManifest",
+  "type": "object",
+  "description": "Full-fingerprint manifest of a temporal/participant-disjoint split (R17). All record IDs per split, participant IDs, UTC cutoffs, seed, drop reasons/counts, SHA-256 of the source and of every FULL ordered split list. Never truncated to the first 50 IDs.",
+  "required": [
+    "schema_version",
+    "cutoffs",
+    "seed",
+    "policy",
+    "source_fingerprint",
+    "splits",
+    "dropped",
+    "drop_summary",
+    "accepted",
+    "validation_errors",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "split-manifest/1" },
+    "created_at": { "type": "string" },
+    "cutoffs": {
+      "type": "object",
+      "required": ["train_end", "validation_end"],
+      "properties": {
+        "train_end": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        },
+        "validation_end": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "seed": { "type": "integer" },
+    "policy": {
+      "type": "object",
+      "required": ["name", "min_split_size", "require_both_classes", "random_split_fallback_allowed", "drop_reason_codes"],
+      "properties": {
+        "name": { "const": "temporal_participant_disjoint" },
+        "min_split_size": { "type": "integer", "minimum": 1 },
+        "require_both_classes": { "type": "boolean" },
+        "random_split_fallback_allowed": { "const": false },
+        "drop_reason_codes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2
+        }
+      },
+      "additionalProperties": false
+    },
+    "source_fingerprint": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" },
+    "splits": {
+      "type": "object",
+      "required": ["train", "validation", "test"],
+      "properties": {
+        "train": { "$ref": "#/definitions/splitEntry" },
+        "validation": { "$ref": "#/definitions/splitEntry" },
+        "test": { "$ref": "#/definitions/splitEntry" }
+      },
+      "additionalProperties": false
+    },
+    "dropped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["record_id", "participant_id", "reason", "occurred_at"],
+        "properties": {
+          "record_id": { "type": "string" },
+          "participant_id": { "type": "string" },
+          "reason": { "type": "string", "minLength": 1 },
+          "occurred_at": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "drop_summary": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "accepted": { "type": "boolean" },
+    "validation_errors": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "manifest_hash": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" }
+  },
+  "definitions": {
+    "splitEntry": {
+      "type": "object",
+      "required": ["record_ids", "participant_ids", "record_count", "fingerprint"],
+      "properties": {
+        "record_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "FULL ordered list — never truncated"
+        },
+        "participant_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "record_count": { "type": "integer", "minimum": 0 },
+        "fingerprint": { "type": "string", "pattern": "^0x[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,60 @@
+{
+  "experiment_id": "EXP-AML-42-1792875674",
+  "protocol_version": "1.1.0",
+  "dataset_hash": "0x5dae6d2763793387c1e1b1d51f0921d72468e62c316140bf45d608da46975718",
+  "code_revision": "b6f61ee",
+  "config_hash": "0x132bfb1e723b7944524b4c9453758f4ca522e5fe1f427451ef4695596bba57ba",
+  "config_path": "protocol.json",
+  "seed": 42,
+  "policy_version": "DEMO-IQD-1",
+  "engine_version": "2.0.0",
+  "environment": {
+    "python_version": "3.14.7",
+    "python_implementation": "CPython",
+    "numpy_version": "2.5.4",
+    "scikit_learn_version": "1.9.1",
+    "joblib_version": "1.6.0",
+    "os": "Windows 11",
+    "platform_machine": "AMD64"
+  },
+  "created_at": "2026-10-24T21:01:14.066185+00:00",
+  "dataset_nature": "synthetic",
+  "identifier_source": "generate_benchmark_dataset(seed=...) synthetic generator: record ids TX-BENCH-%06d, senders ACC-IQD-SND-%04d (NOT institutional data)",
+  "dataset_size": {
+    "requested": 1200,
+    "generated": 1200
+  },
+  "max_records": 1200,
+  "split_hash": "0x27f34808a3efa23c696a6fefee259e2e14ef673d0489c266a1a391d022c4cd51",
+  "split_manifest": {
+    "manifest_hash": "0x27f34808a3efa23c696a6fefee259e2e14ef673d0489c266a1a391d022c4cd51",
+    "accepted": false,
+    "record_counts": {
+      "train": 215,
+      "validation": 3,
+      "test": 6
+    },
+    "drop_summary": {
+      "TRAIN_PARTICIPANT_FUTURE_RECORD": 804,
+      "PARTICIPANT_CROSSES_VALIDATION_TEST_BOUNDARY": 172
+    }
+  },
+  "outcome": "INSUFFICIENT_DATA",
+  "insufficient_data": {
+    "reason": "validation split has 3 records (< minimum 100); validation split lacks a required class (present labels: [0]); test split has 6 records (< minimum 100)",
+    "split_sizes": {
+      "train": 215,
+      "validation": 3,
+      "test": 6
+    },
+    "drop_summary": {
+      "TRAIN_PARTICIPANT_FUTURE_RECORD": 804,
+      "PARTICIPANT_CROSSES_VALIDATION_TEST_BOUNDARY": 172
+    },
+    "validation_errors": [
+      "validation split has 3 records (< minimum 100)",
+      "validation split lacks a required class (present labels: [0])",
+      "test split has 6 records (< minimum 100)"
+    ]
+  }
+}

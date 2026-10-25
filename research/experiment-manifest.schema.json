@@ -2,52 +2,130 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ExperimentManifest",
   "type": "object",
-  "description": "Validation schema for Track A empirical experimentation manifests",
+  "description": "Validation schema for Track A empirical experiment run manifests (R17 regime: strict temporal/participant-disjoint splits; outcome computed from acceptance gates or INSUFFICIENT_DATA).",
   "required": [
     "experiment_id",
+    "protocol_version",
     "dataset_hash",
     "split_hash",
     "code_revision",
     "config_hash",
+    "config_path",
     "seed",
     "policy_version",
     "engine_version",
-    "model_hash",
-    "metrics",
-    "environment"
+    "outcome",
+    "environment",
+    "created_at",
+    "dataset_nature",
+    "identifier_source",
+    "dataset_size",
+    "split_manifest"
   ],
   "properties": {
     "experiment_id": {
       "type": "string",
       "pattern": "^EXP-[A-Z0-9_-]+$"
     },
+    "protocol_version": { "type": "string" },
     "dataset_hash": {
       "type": "string",
       "pattern": "^0x[0-9a-fA-F]{64}$"
     },
     "split_hash": {
       "type": "string",
-      "pattern": "^0x[0-9a-fA-F]{64}$"
+      "pattern": "^0x[0-9a-fA-F]{64}$",
+      "description": "manifest_hash of the accepted (or rejected, for INSUFFICIENT_DATA runs) split-manifest.json"
     },
-    "code_revision": {
-      "type": "string"
-    },
+    "code_revision": { "type": "string" },
     "config_hash": {
       "type": "string",
       "pattern": "^0x[0-9a-fA-F]{64}$"
     },
-    "seed": {
-      "type": "integer"
+    "config_path": { "type": "string" },
+    "seed": { "type": "integer" },
+    "policy_version": { "type": "string" },
+    "engine_version": { "type": "string" },
+    "outcome": {
+      "enum": ["SUPPORTED", "FAILED", "INSUFFICIENT_DATA"]
     },
-    "policy_version": {
-      "type": "string"
+    "environment": {
+      "type": "object",
+      "description": "ACTUAL runtime/library versions — recorded, never hardcoded",
+      "required": ["python_version", "python_implementation", "numpy_version", "scikit_learn_version", "joblib_version", "os", "platform_machine"],
+      "properties": {
+        "python_version": { "type": "string" },
+        "python_implementation": { "type": "string" },
+        "numpy_version": { "type": "string" },
+        "scikit_learn_version": { "type": "string" },
+        "joblib_version": { "type": "string" },
+        "os": { "type": "string" },
+        "platform_machine": { "type": "string" }
+      },
+      "additionalProperties": false
     },
-    "engine_version": {
-      "type": "string"
+    "created_at": { "type": "string" },
+    "dataset_nature": {
+      "enum": ["synthetic", "institutional"]
     },
-    "model_hash": {
-      "type": "string",
-      "pattern": "^0x[0-9a-fA-F]{64}$"
+    "identifier_source": { "type": "string" },
+    "dataset_size": {
+      "type": "object",
+      "required": ["requested", "generated"],
+      "properties": {
+        "requested": { "type": "integer", "minimum": 0 },
+        "generated": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "max_records": { "type": ["integer", "null"] },
+    "split_manifest": {
+      "type": "object",
+      "required": ["manifest_hash", "accepted", "record_counts", "drop_summary"],
+      "properties": {
+        "manifest_hash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "accepted": { "type": "boolean" },
+        "record_counts": {
+          "type": "object",
+          "required": ["train", "validation", "test"],
+          "properties": {
+            "train": { "type": "integer", "minimum": 0 },
+            "validation": { "type": "integer", "minimum": 0 },
+            "test": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "drop_summary": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "insufficient_data": {
+      "type": "object",
+      "description": "Present only when outcome is INSUFFICIENT_DATA",
+      "required": ["reason", "split_sizes", "drop_summary"],
+      "properties": {
+        "reason": { "type": "string" },
+        "split_sizes": {
+          "type": "object",
+          "required": ["train", "validation", "test"],
+          "properties": {
+            "train": { "type": "integer", "minimum": 0 },
+            "validation": { "type": "integer", "minimum": 0 },
+            "test": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "drop_summary": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "validation_errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
     },
     "metrics": {
       "type": "object",
@@ -60,15 +138,20 @@
         "fpr_per_1000": { "type": "number", "minimum": 0 }
       }
     },
-    "environment": {
-      "type": "object",
-      "required": ["python_version", "scikit_learn_version", "os"],
-      "properties": {
-        "python_version": { "type": "string" },
-        "scikit_learn_version": { "type": "string" },
-        "os": { "type": "string" }
-      }
+    "metrics_by_model": { "type": "object" },
+    "model_hash": {
+      "type": "string",
+      "pattern": "^0x[0-9a-fA-F]{64}$"
     }
+  },
+  "if": {
+    "properties": { "outcome": { "const": "INSUFFICIENT_DATA" } }
+  },
+  "then": {
+    "not": { "required": ["metrics", "model_hash"] }
+  },
+  "else": {
+    "required": ["metrics", "model_hash"]
   },
   "additionalProperties": false
 }
