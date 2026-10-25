@@ -106,11 +106,11 @@ class RpcError(Exception):
 class SimulatedEvmAdapter:
     """Send-path RPC + ForensicTrail semantics. Deterministic, auto-mining."""
 
-    def __init__(self):
+    def __init__(self, chain_id: int = CHAIN_ID):
         from eth_account import Account
 
         self._Account = Account
-        self.chain_id = CHAIN_ID
+        self.chain_id = chain_id
         self.gas_price = 10 ** 9
         self.executed_nonce: dict[str, int] = {}
         self.txs: dict[str, dict] = {}           # tx_hash -> record

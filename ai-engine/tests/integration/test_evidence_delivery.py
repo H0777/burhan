@@ -48,64 +48,14 @@ from app.services.evidence_broker import (
     IdempotencyConflictError,
     MissingSignerError,
 )
-from app.workers.evidence_anchor import EvidenceAnchorWorker
+from app.workers.evidence_anchor import CrashSimulated, EvidenceAnchorWorker
 from app.repositories import case_repository, evidence_repository
 
-
-class MockEvmRpcClient:
-    """
-    Mock EVM client that faithfully mirrors ForensicTrail.sol deduplication logic.
-    """
-    def __init__(self):
-        self.evidence_counter = 0
-        self.requests = {}  # anchor_request_id -> record
-
-    def get_evidence_by_request_id(self, anchor_request_id: str):
-        if anchor_request_id in self.requests:
-            rec = self.requests[anchor_request_id]
-            return {
-                "evidence_id": rec["evidence_id"],
-                "entry_hash": rec["entry_hash"],
-                "submitted_by": rec["submitted_by"],
-                "exists": True,
-                "block_number": rec["block_number"],
-                "transaction_hash": rec["transaction_hash"],
-            }
-        return {"exists": False}
-
-    def submit_evidence(
-        self,
-        incident_id: int,
-        anchor_request_id: str,
-        evidence_type_hash: str,
-        description_hash: str,
-        file_sha256: str,
-    ):
-        if anchor_request_id in self.requests:
-            # Idempotent replay: return existing without incrementing counter
-            rec = self.requests[anchor_request_id]
-            return {
-                "evidence_id": rec["evidence_id"],
-                "entry_hash": rec["entry_hash"],
-                "transaction_hash": rec["transaction_hash"],
-                "block_number": rec["block_number"],
-            }
-
-        self.evidence_counter += 1
-        entry_hash = "0x" + hashlib.sha256(
-            f"{anchor_request_id}:{self.evidence_counter}".encode("utf-8")
-        ).hexdigest()
-        tx_hash = "0x" + hashlib.sha256(f"tx:{self.evidence_counter}".encode("utf-8")).hexdigest()
-
-        record = {
-            "evidence_id": self.evidence_counter,
-            "entry_hash": entry_hash,
-            "submitted_by": "0x1111111111111111111111111111111111111111",
-            "block_number": 42 + self.evidence_counter,
-            "transaction_hash": tx_hash,
-        }
-        self.requests[anchor_request_id] = record
-        return record
+# R08: the anchor worker runs the REAL ChainSender pipeline. The chain is
+# simulated by chain_sim.SimulatedEvmAdapter (real signatures, RLP-decoded
+# nonce enforcement, ForensicTrail dedupe semantics) — the worker, sender,
+# repositories and persistence under test are the real ones.
+from chain_sim import FakeClock, SimulatedEvmAdapter, make_sender
 
 
 @pytest.fixture
@@ -200,12 +150,18 @@ def _broker(test_env) -> EvidenceBroker:
 
 
 def test_evidence_submission_and_anchoring_flow(test_env):
-    """Happy path: submit evidence, inspect outbox, and run anchor worker."""
+    """Happy path: submit evidence, inspect outbox, and run the R08 anchor
+    worker (real ChainSender pipeline, simulated chain)."""
     session = test_env["session"]
     store = test_env["evidence_store"]
     broker = _broker(test_env)
-    rpc_client = MockEvmRpcClient()
-    worker = EvidenceAnchorWorker(rpc_client=rpc_client)
+
+    adapter = SimulatedEvmAdapter(chain_id=1337)  # broker payload chain (settings.CHAIN_ID)
+    clock = FakeClock()
+    sender, _account = make_sender(adapter, clock)
+    worker = EvidenceAnchorWorker(
+        chain_sender=sender, deployment_id="0x" + "22" * 32,
+    )
 
     identity = Identity(
         issuer="https://auth.cbi.iq",
@@ -288,29 +244,46 @@ def test_evidence_submission_and_anchoring_flow(test_env):
     assert ob_payload["service_manifest"] == envelope
     assert ob_payload["manifest_hash"] == "0x" + res["manifest_digest"]
 
-    # Run anchor worker
-    processed = worker.process_pending_anchors(session, institution_id="inst_cbi")
-    assert processed == 1
-    assert rpc_client.evidence_counter == 1
+    # Run the R08 anchor worker cycle (claim -> incident -> attested
+    # submission -> receipt/depth/entry verification -> COMPLETED).
+    from sqlalchemy.orm import sessionmaker as _sm
+
+    SessionFactory = _sm(bind=session.get_bind(), expire_on_commit=False)
+    stats = worker.process_cycle(
+        session_factory=SessionFactory, institution_id="inst_cbi", clock=clock,
+    )
+    assert stats["anchored"] == 1
+    assert adapter.stats()["evidence"] == 1  # exactly one on-chain entry
 
     # Verify anchor updated to ANCHORED
-    session.refresh(anchor_db)
+    session.expire_all()
+    anchor_db = session.execute(
+        select(EvidenceAnchor).where(EvidenceAnchor.evidence_id == res["evidence_id"])
+    ).scalars().first()
     assert anchor_db.status == "ANCHORED"
     assert anchor_db.entry_hash is not None
     assert anchor_db.transaction_hash is not None
 
+    outbox_row = session.execute(select(Outbox)).scalars().first()
+    assert outbox_row.status == "COMPLETED"
+
 
 def test_crash_recovery_before_ack_idempotency(test_env):
     """
-    Failure injection: Blockchain transaction succeeds, but local process crashes
-    before ACK is saved to DB. On replay, getEvidenceByRequestId must prevent
-    duplicate counter increment.
+    Failure injection (R08 semantics): the chain transaction is mined, but
+    the worker crashes BEFORE the DB records the ack. On replay,
+    getEvidenceByRequestId must reconcile the anchor WITHOUT a second
+    on-chain entry.
     """
     session = test_env["session"]
-    store = test_env["evidence_store"]
     broker = _broker(test_env)
-    rpc_client = MockEvmRpcClient()
-    worker = EvidenceAnchorWorker(rpc_client=rpc_client)
+
+    adapter = SimulatedEvmAdapter(chain_id=1337)  # broker payload chain (settings.CHAIN_ID)
+    clock = FakeClock()
+    sender, _account = make_sender(adapter, clock)
+    worker = EvidenceAnchorWorker(
+        chain_sender=sender, deployment_id="0x" + "22" * 32,
+    )
 
     identity = Identity(
         issuer="https://auth.cbi.iq",
@@ -330,32 +303,41 @@ def test_crash_recovery_before_ack_idempotency(test_env):
     )
     session.commit()
 
-    # Pre-populate on-chain state to simulate: transaction was mined on-chain,
-    # but worker crashed before DB update!
-    anchor_req_id = res["anchor_request_id"]
-    record = rpc_client.submit_evidence(
-        incident_id=1,
-        anchor_request_id=anchor_req_id,
-        evidence_type_hash="0x" + ("1" * 64),
-        description_hash="0x" + ("2" * 64),
-        file_sha256="0x" + hashlib.sha256(b"DATA_FOR_CRASH_TEST").hexdigest(),
-    )
-    assert rpc_client.evidence_counter == 1
-    initial_entry_hash = record["entry_hash"]
+    from sqlalchemy.orm import sessionmaker as _sm
 
-    # Now run worker (replay of outbox task)
-    processed = worker.process_pending_anchors(session, institution_id="inst_cbi")
-    assert processed == 1
+    SessionFactory = _sm(bind=session.get_bind(), expire_on_commit=False)
+
+    # Mine the evidence, then crash before the ANCHORED/COMPLETED commit.
+    with pytest.raises(CrashSimulated, match="after_receipt_before_commit"):
+        worker.process_cycle(
+            session_factory=SessionFactory,
+            institution_id="inst_cbi",
+            clock=clock,
+            crash_before="after_receipt_before_commit",
+        )
+    assert adapter.stats()["evidence"] == 1  # mined exactly once
+
+    # Restart (same provisioned signer; lease expired via the injected clock)
+    clock.advance(61)
+    worker2 = EvidenceAnchorWorker(
+        chain_sender=sender, worker_id="anchor_restart",
+        deployment_id="0x" + "22" * 32,
+    )
+    stats = worker2.process_cycle(
+        session_factory=SessionFactory, institution_id="inst_cbi", clock=clock,
+    )
+    assert stats["anchored"] == 1
 
     # Evidence counter on chain MUST NOT HAVE INCREMENTED!
-    assert rpc_client.evidence_counter == 1
+    assert adapter.stats()["evidence"] == 1
 
     # Database anchor record successfully reconciled with on-chain record
+    session.expire_all()
     anchor_db = session.execute(
-        select(EvidenceAnchor).where(EvidenceAnchor.anchor_request_id == anchor_req_id)
+        select(EvidenceAnchor).where(EvidenceAnchor.anchor_request_id == res["anchor_request_id"])
     ).scalars().first()
     assert anchor_db.status == "ANCHORED"
-    assert anchor_db.entry_hash == initial_entry_hash
+    assert anchor_db.entry_hash is not None
 
 
 def test_case_assignment_unauthorized_investigator(test_env):

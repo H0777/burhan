@@ -1,10 +1,18 @@
 """
-Blockchain Event Indexer and Reorg Recovery Worker (T15)
-Specification §4, §6 (R09, R11)
+Blockchain Event Indexer and Reorg Recovery Worker (T15, R08)
+Specification §4, §6, §7 (R09, R11, R08)
 
 Polls bounded block ranges, validates canonical consensus, detects chain reorgs,
 marks orphaned events without data loss, and commits events and checkpoints
 atomically in a single tenant transaction.
+
+R08 additions:
+  * record_heartbeat: per-worker heartbeat row each cycle (worker_heartbeats).
+  * Reorg handling (unchanged semantics, now spec §7-named): checkpoint
+    rollback to the last canonical block, affected projections/snapshots
+    (chain_events rows) invalidated to ORPHANED — the original payload_json
+    and every original file are NEVER deleted; unique constraints
+    (uq_chain_event_inst_log) make re-ingestion after a rewind idempotent.
 """
 
 import uuid
@@ -16,7 +24,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
 
-from app.db.models import ChainEventRecord, CheckpointRecord
+from app.db.models import ChainEventRecord, CheckpointRecord, WorkerHeartbeat
 from app.services.chain_registry import ChainRegistry
 from app.services.blockchain_listener import BlockchainListener
 
@@ -46,6 +54,41 @@ class BlockchainIndexerWorker:
     ):
         self.listener = listener
         self.registry = registry or ChainRegistry()
+
+    def record_heartbeat(
+        self,
+        session: Session,
+        institution_id: str,
+        worker_id: str,
+        clock: Optional[Any] = None,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> WorkerHeartbeat:
+        """Per-worker heartbeat (R08): one row per (institution, worker, role),
+        refreshed every cycle. `clock` is injectable for tests."""
+        now = clock() if callable(clock) else datetime.now(timezone.utc)
+        hb = session.execute(
+            select(WorkerHeartbeat).where(
+                WorkerHeartbeat.institution_id == institution_id,
+                WorkerHeartbeat.worker_id == worker_id,
+                WorkerHeartbeat.role == "indexer",
+            )
+        ).scalars().first()
+        payload = json.dumps(detail or {}, sort_keys=True)
+        if hb is None:
+            hb = WorkerHeartbeat(
+                id=f"hb_{uuid.uuid4().hex[:16]}",
+                institution_id=institution_id,
+                worker_id=worker_id,
+                role="indexer",
+                heartbeat_at=now,
+                detail_json=payload,
+            )
+            session.add(hb)
+        else:
+            hb.heartbeat_at = now
+            hb.detail_json = payload
+        session.flush()
+        return hb
 
     def get_or_create_checkpoint(
         self,
