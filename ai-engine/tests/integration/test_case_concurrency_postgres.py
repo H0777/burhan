@@ -35,7 +35,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db.models import Case, CaseEvent, IdempotencyKey, Institution, Membership
 from app.db.session import tenant_transaction
 from app.schemas.identity import Identity, RoleEnum
-from app.services.case_service import CaseService, VersionConflictError
+from app.services.case_service import CaseService, VersionConflictError, _idempotency_scope_key
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 AI_ENGINE_DIR = Path(__file__).resolve().parents[2]
@@ -268,12 +268,19 @@ def test_exception_after_event_rolls_back_all(app_engine, seeded):
                 select(func.count()).select_from(CaseEvent).where(CaseEvent.case_id == case_id)
             ).scalar_one()
             assert events == 1, "transition event survived the aborted transaction"
+            # The reservation is stored under the SCOPED key (SHA-256 of
+            # institution+sub+method+path+raw key — see _idempotency_scope_key),
+            # so the lookup must recompute the same scope hash, not use the raw
+            # client key (which would make this assertion vacuous).
+            scoped_key = _idempotency_scope_key(
+                TENANT, AUDITOR_1, ("", ""), idem_key
+            )
             ik = verify.execute(
                 select(func.count())
                 .select_from(IdempotencyKey)
                 .where(
                     IdempotencyKey.institution_id == TENANT,
-                    IdempotencyKey.key == idem_key,
+                    IdempotencyKey.key == scoped_key,
                 )
             ).scalar_one()
             assert ik == 0, "idempotency reservation survived the aborted transaction"

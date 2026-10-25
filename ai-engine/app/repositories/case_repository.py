@@ -16,10 +16,15 @@ import uuid
 import json
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
-from sqlalchemy import select, update
+from sqlalchemy import select, tuple_, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Case, CaseEvent
+
+
+# Whitelist for the CAS `updates` argument: `updates` may only touch these
+# non-identity, non-lifecycle columns (e.g. assigned_to_sub for assign).
+CAS_UPDATABLE_COLUMNS = {"assigned_to_sub", "description", "severity", "title"}
 
 
 class VersionConflictError(Exception):
@@ -104,7 +109,6 @@ def list_cases(
     produced while results remain).
     """
     limit = min(max(1, limit), 101)
-    from sqlalchemy import tuple_
 
     conditions = [Case.institution_id == institution_id]
     if status:
@@ -158,10 +162,8 @@ def update_case_status(
         "version": Case.version + 1,
         "updated_at": datetime.now(timezone.utc),
     }
-    # Whitelist: `updates` may only touch non-identity, non-lifecycle columns.
-    _CAS_UPDATABLE_COLUMNS = {"assigned_to_sub", "description", "severity", "title"}
     for key, value in (updates or {}).items():
-        if key in _CAS_UPDATABLE_COLUMNS and key not in values:
+        if key in CAS_UPDATABLE_COLUMNS and key not in values:
             values[key] = value
 
     conditions = [
