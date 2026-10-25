@@ -17,11 +17,19 @@ class Settings(BaseSettings):
         Path(__file__).parent.parent.parent / "deployments" / "deployment-manifest.json"
     )
 
+    # Application mode (R10): 'demo' or 'institutional' — explicit, never inferred.
+    # Institutional mode requires OIDC (issuer/audience/JWKS) and the on-chain
+    # RoleManager address, refuses demo identities and fallback keys/RPC.
+    APP_MODE: str = "demo"
+
     # OIDC & Identity configuration (T13, R10)
     OIDC_ENABLED: bool = False
     OIDC_ISSUER: str = "https://auth.institutional-cbi.iq/oauth2"
     OIDC_AUDIENCE: str = "iraq-aml-audit-engine"
     OIDC_JWKS_URL: str = ""
+    OIDC_ALGORITHMS: list[str] = ["RS256"]
+    OIDC_CLOCK_SKEW_SECONDS: int = 60
+    ROLE_MANAGER_ADDRESS: str = ""
     WALLET_CHALLENGE_DOMAIN: str = "iraq-aml-audit.cbi.iq"
     WALLET_CHALLENGE_TTL_SECONDS: int = 300
 
@@ -79,3 +87,41 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_startup_config() -> None:
+    """
+    Identity startup gate (R10): the application mode must be explicit, and
+    institutional mode must be fully provisioned before the API can start.
+
+    Institutional mode FAILS TO START when:
+      - OIDC is disabled or its issuer/audience/JWKS endpoint are missing.
+
+    (The on-chain RoleManager requirement is enforced where it applies — wallet
+    binding and pre-write authorization raise ChainUnavailableError without it,
+    answering 503 rather than trusting browser claims — so a read-only
+    institutional deployment is not blocked at startup.)
+    """
+    mode = settings.APP_MODE.strip().lower()
+    if mode not in ("demo", "institutional"):
+        raise RuntimeError(
+            f"APP_MODE must be 'demo' or 'institutional' (got {settings.APP_MODE!r})"
+        )
+    if mode == "institutional":
+        missing = []
+        if not settings.OIDC_ENABLED:
+            raise RuntimeError(
+                "Institutional mode requires OIDC_ENABLED=true: the demo identity "
+                "path is never available in institutional deployments"
+            )
+        if not settings.OIDC_ISSUER:
+            missing.append("OIDC_ISSUER")
+        if not settings.OIDC_AUDIENCE:
+            missing.append("OIDC_AUDIENCE")
+        if not settings.OIDC_JWKS_URL:
+            missing.append("OIDC_JWKS_URL")
+        if missing:
+            raise RuntimeError(
+                "Institutional mode requires OIDC (issuer/audience/JWKS); "
+                f"missing: {', '.join(missing)}"
+            )

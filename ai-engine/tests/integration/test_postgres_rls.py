@@ -69,6 +69,19 @@ MIGRATION_OWNER_ENV_VAR = "MIGRATION_DATABASE_URL"
 BASELINE_REVISION = "r11_baseline"
 
 
+def _expected_head() -> str:
+    """The current single head of the alembic script directory.
+
+    R10 note: the suite no longer pins the head to `r11_baseline` — the R11
+    single-head convention (§6) means later revisions legitimately advance the
+    head (e.g. `institutional_wallet_challenges`). What must hold is that the
+    migrated database sits at THE current head, whatever it is.
+    """
+    from app.db.session import _alembic_head_revision
+
+    return _alembic_head_revision()
+
+
 def _require_pg_urls() -> tuple[str, str]:
     """Return (app_role_url, migration_owner_url) or skip when not provided."""
     app_url = os.environ.get("DATABASE_URL", "")
@@ -133,7 +146,7 @@ def migrated_db(owner_engine):
         )
     with owner_engine.connect() as conn:
         head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert head == BASELINE_REVISION
+    assert head == _expected_head()
     return head
 
 
@@ -724,7 +737,7 @@ def test_migrations_from_empty_and_existing_fixture(pg_urls):
                 assert table in tables, f"baseline table {table} missing after upgrade"
             assert (
                 conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == BASELINE_REVISION
+                == _expected_head()
             )
     finally:
         app_empty.dispose()
@@ -751,7 +764,7 @@ def test_migrations_from_empty_and_existing_fixture(pg_urls):
         with existing_engine.connect() as conn:
             assert (
                 conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-                == BASELINE_REVISION
+                == _expected_head()
             )
     finally:
         existing_engine.dispose()
