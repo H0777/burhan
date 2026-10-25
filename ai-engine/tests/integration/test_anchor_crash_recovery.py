@@ -10,7 +10,9 @@ effect at any crash boundary.
 """
 
 import pytest
+from datetime import timedelta
 
+from app.db.session import tenant_transaction
 from app.workers.evidence_anchor import CrashSimulated, EvidenceAnchorWorker
 from app.services.chain_sender import SIGNED, BROADCAST
 
@@ -28,8 +30,11 @@ def harness():
     h.close()
 
 
-def _worker(adapter, clock, worker_id="anchor_r08"):
-    sender, _account = make_sender(adapter, clock)
+def _worker(adapter, clock, worker_id="anchor_r08", sender=None):
+    # A restarted process reloads the SAME provisioned signer credentials;
+    # tests that re-drive an existing submission pass the sender through.
+    if sender is None:
+        sender, _account = make_sender(adapter, clock)
     return EvidenceAnchorWorker(chain_sender=sender, worker_id=worker_id, deployment_id="0x" + "22" * 32)
 
 
@@ -313,3 +318,184 @@ def test_request_payload_conflict_is_dead(harness):
     assert "different" in row[1] or "conflict" in row[1].lower()
     # No second on-chain effect from the conflict.
     assert adapter.stats()["evidence"] == 1
+
+
+def test_receipt_status_zero_not_anchored(harness):
+    """A mined receipt with status 0 means the on-chain execution FAILED:
+    the anchor is NOT anchored, the failure consumes a retry with backoff,
+    and the submission records RECEIPT_STATUS_ZERO."""
+    task = harness.seed_anchor_task()
+    adapter = SimulatedEvmAdapter()
+    clock = FakeClock()
+    worker = _worker(adapter, clock)
+
+    # The case-incident tx succeeds; the evidence tx reverts.
+    adapter.fail_selector = "EVIDENCE"
+    stats = worker.process_cycle(
+        session_factory=harness.AppSession, institution_id=task["institution_id"], clock=clock,
+    )
+
+    row = harness.query(
+        "SELECT status FROM evidence_anchors WHERE institution_id = :i",
+        {"i": task["institution_id"]}, task["institution_id"],
+    )[0]
+    assert row[0] != "ANCHORED"
+
+    sub = harness.query(
+        "SELECT status, receipt_status FROM chain_submissions WHERE institution_id = :i "
+        "AND submission_kind = 'EVIDENCE_ATTESTED'",
+        {"i": task["institution_id"]}, task["institution_id"],
+    )[0]
+    assert sub[0] == "RECEIPT_STATUS_ZERO"
+    assert sub[1] == 0
+
+    ob = harness.query(
+        "SELECT status, attempts, next_attempt_at FROM outbox WHERE id = :i",
+        {"i": task["outbox_id"]}, task["institution_id"],
+    )[0]
+    assert ob[0] == "FAILED"          # not COMPLETED, not DEAD: retry ladder
+    assert ob[1] == 1
+    assert ob[2] == clock() + timedelta(seconds=5)  # first backoff, injected clock
+    assert adapter.stats()["evidence"] == 0         # nothing anchored on-chain
+
+
+def test_receipt_reorg_returns_submitted(harness):
+    """A reorged receipt sends the anchor to REORGED and the outbox item
+    back to SUBMITTED (not final): reconciliation continues."""
+    task = harness.seed_anchor_task()
+    adapter = SimulatedEvmAdapter()
+    clock = FakeClock()
+    sender, _account = make_sender(adapter, clock)  # ONE provisioned signer for all passes
+    worker = _worker(adapter, clock, sender=sender)
+
+    stats = worker.process_cycle(
+        session_factory=harness.AppSession, institution_id=task["institution_id"], clock=clock,
+    )
+    assert stats["anchored"] == 1  # anchored under the pre-reorg canonical chain
+
+    # Fork the chain at the evidence receipt's block.
+    evidence_sub = harness.query(
+        "SELECT receipt_block_number FROM chain_submissions WHERE institution_id = :i "
+        "AND submission_kind = 'EVIDENCE_ATTESTED'",
+        {"i": task["institution_id"]}, task["institution_id"],
+    )[0][0]
+    adapter.reorg_from(int(evidence_sub))
+
+    def _reclaim_and_cycle(worker_id):
+        harness.query(
+            "UPDATE outbox SET status = 'SUBMITTED', next_attempt_at = NULL, "
+            "lease_owner = NULL, lease_token = NULL, lease_expires_at = :past WHERE id = :i",
+            {"i": task["outbox_id"], "past": clock() - timedelta(seconds=1)},
+            task["institution_id"],
+        )
+        clock.advance(RESTART_ADVANCE_SECONDS)  # expired-lease reclaim
+        w = _worker(adapter, clock, worker_id=worker_id, sender=sender)
+        return w.process_cycle(
+            session_factory=harness.AppSession, institution_id=task["institution_id"], clock=clock,
+        )
+
+    def _db_state():
+        anchor_row = harness.query(
+            "SELECT status FROM evidence_anchors WHERE institution_id = :i",
+            {"i": task["institution_id"]}, task["institution_id"],
+        )[0][0]
+        sub_status = harness.query(
+            "SELECT status FROM chain_submissions WHERE institution_id = :i "
+            "AND submission_kind = 'EVIDENCE_ATTESTED'",
+            {"i": task["institution_id"]}, task["institution_id"],
+        )[0][0]
+        ob = harness.query(
+            "SELECT status FROM outbox WHERE id = :i",
+            {"i": task["outbox_id"]}, task["institution_id"],
+        )[0][0]
+        return anchor_row, sub_status, ob
+
+    # Pass 1 — the reorg is DETECTED at reconcile: anchor REORGED, the
+    # submission REORGED, and the outbox item goes BACK TO SUBMITTED
+    # (not final; reconciliation continues, no retry consumed for slowness).
+    _reclaim_and_cycle("anchor_r08_reorg_detect")
+    anchor_row, sub_status, ob = _db_state()
+    assert sub_status == "REORGED"
+    assert anchor_row == "REORGED"
+    assert ob == "SUBMITTED", "reorg receipt must return the item to SUBMITTED"
+
+    # Pass 2 — the honest replacement: the REORGED request is re-signed with
+    # a fresh nonce (the dead nonce no longer holds the allocation) and
+    # re-anchored on the new canonical chain: one live entry.
+    _reclaim_and_cycle("anchor_r08_reorg_replace")
+    anchor_row, sub_status, ob = _db_state()
+    assert sub_status == "CONFIRMED"
+    assert anchor_row == "ANCHORED"
+    assert ob == "COMPLETED"
+    assert adapter.stats()["incidents"] == 1
+    assert adapter.stats()["evidence"] == 1  # the reorged entry reverted on-chain
+
+
+def test_backoff_ladder_and_dead_with_reschedule(harness):
+    """Retries follow 5/30/120/600/1800 exactly (injected clock, no sleeps);
+    the FIFTH failure is DEAD with reason and an explicit recorded
+    reschedule; SUBMITTED never consumes a retry."""
+    from app.repositories import outbox_repository as outbox_repo
+
+    task = harness.seed_anchor_task()
+
+    class DeadAdapter(SimulatedEvmAdapter):
+        def get_manifest_digest(self, request_id):
+            raise ConnectionError("RPC connection refused (backoff test)")
+
+    adapter = DeadAdapter()
+    clock = FakeClock()
+    sender, _acct = make_sender(adapter, clock)
+    worker = EvidenceAnchorWorker(
+        chain_sender=sender, worker_id="anchor_backoff", deployment_id="0x" + "22" * 32,
+    )
+
+    ladder = [5, 30, 120, 600, 1800]
+    for attempt, backoff in enumerate(ladder, start=1):
+        stats = worker.process_cycle(
+            session_factory=harness.AppSession,
+            institution_id=task["institution_id"],
+            clock=clock,
+        )
+        row = harness.query(
+            "SELECT status, attempts, next_attempt_at, last_error FROM outbox WHERE id = :i",
+            {"i": task["outbox_id"]}, task["institution_id"],
+        )[0]
+        if attempt < 5:
+            assert row[0] == "FAILED", f"attempt {attempt}: {row}"
+            assert row[1] == attempt
+            assert row[2] == clock() + timedelta(seconds=backoff), (
+                f"attempt {attempt}: next_attempt_at {row[2]} != now+{backoff}s"
+            )
+            assert "RPC connection refused" in row[3]
+            # advance ONLY the backoff (clock-injected; no real sleep)
+            clock.advance(backoff)
+        else:
+            assert row[0] == "DEAD", f"fifth failure must be DEAD: {row}"
+            assert row[1] == 5
+            assert row[3] and "DEAD after 5 attempts" in row[3]
+            assert "reschedule" in row[3]  # explicit recorded reschedule
+            assert row[2] == clock() + timedelta(seconds=1800)
+            assert stats["dead"] == 1
+
+    # After DEAD the item is never claimed again, even past the reschedule.
+    clock.advance(3600)
+    stats = worker.process_cycle(
+        session_factory=harness.AppSession, institution_id=task["institution_id"], clock=clock,
+    )
+    assert stats["claimed"] == 0
+
+    # SUBMITTED does not consume a retry: direct repository proof.
+    task2 = harness.seed_anchor_task()
+    with harness.AppSession() as session:
+        with tenant_transaction(session, task2["institution_id"]):
+            claimed = outbox_repo.claim_batch(
+                session=session, institution_id=task2["institution_id"],
+                worker_id="w_submitted", now=clock(), limit=5,
+            )
+            assert len(claimed) == 1
+            token = claimed[0].lease_token
+            assert outbox_repo.mark_submitted(session, claimed[0].id, token, clock())
+            # A slow confirmation keeps it SUBMITTED — attempts unchanged.
+            assert session.get(type(claimed[0]), claimed[0].id).status == "SUBMITTED"
+            assert session.get(type(claimed[0]), claimed[0].id).attempts == 1

@@ -385,7 +385,26 @@ class ChainSender:
     def _replace_in_place(
         self, session, binding, existing, call, request_id, digest, now
     ) -> ChainSubmission:
-        nonce = self._next_nonce(session, binding.chain_id)
+        """Re-sign a REORGED / RECEIPT_STATUS_ZERO request with a fresh nonce.
+
+        The dead transaction's nonce must not hold the allocation: live
+        submissions (everything except REORGED/RECEIPT_STATUS_ZERO rows,
+        excluding the row being replaced) plus the chain's pending nonce
+        decide the next nonce — a reorged nonce is allocatable again on the
+        canonical chain.
+        """
+        live_max = session.execute(
+            select(func.max(ChainSubmission.nonce)).where(
+                ChainSubmission.chain_id == binding.chain_id,
+                ChainSubmission.signer_address == self.signer_address,
+                ChainSubmission.id != existing.id,
+                ChainSubmission.status.notin_((REORGED, RECEIPT_STATUS_ZERO)),
+            )
+        ).scalar_one()
+        chain_pending = int(self.adapter.eth_get_transaction_count(self.signer_address, "pending"))
+        base = (live_max + 1) if live_max is not None else 0
+        nonce = max(base, chain_pending)
+
         fresh = self._sign_row(binding, call, request_id, digest, nonce, now)
         existing.nonce = fresh.nonce
         existing.protected_raw_tx = fresh.protected_raw_tx

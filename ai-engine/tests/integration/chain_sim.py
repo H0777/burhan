@@ -124,6 +124,7 @@ class SimulatedEvmAdapter:
         self.evidence_counter = 0
         self.broadcast_calls: dict[str, int] = {}  # tx_hash -> eth_sendRaw count
         self.fail_next_tx = False
+        self.fail_selector = None  # "EVIDENCE" -> only submitEvidenceAttested reverts
         self.hold_receipts = False
         self.lock = threading.Lock()
 
@@ -154,7 +155,27 @@ class SimulatedEvmAdapter:
         with self.lock:
             self.broadcast_calls[tx_hash] = self.broadcast_calls.get(tx_hash, 0) + 1
             if tx_hash in self.txs:
-                return tx_hash  # mempool idempotence: same raw tx mined once
+                rec = self.txs[tx_hash]
+                if not rec.get("reverted"):
+                    return tx_hash  # live tx: mempool idempotence, mined once
+                # A REORGED tx is re-accepted by a real node (its old copy
+                # vanished with the forked block): re-mine it into a new
+                # canonical block and re-apply its effects.
+                block_number = self._mine()
+                receipt = rec["receipt"]
+                receipt["blockNumber"] = hex(block_number)
+                receipt["blockHash"] = self.blocks[block_number]
+                rec["block_number"] = block_number
+                rec["reverted"] = False
+                if int(receipt["status"], 16) == 1:
+                    receipt.pop("effects", None)
+                    self._execute(
+                        rec["to"], rec["data_hex"], rec["sender"], tx_hash,
+                        block_number, receipt,
+                    )
+                    rec["effects"] = receipt.get("effects", [])
+                self.executed_nonce[rec["sender"]] = rec["nonce"] + 1
+                return tx_hash
 
             sender = Account.recover_transaction(raw).lower()
             items, _ = _rlp_decode(raw)
@@ -168,7 +189,10 @@ class SimulatedEvmAdapter:
                     f"nonce mismatch: tx nonce {nonce}, next for sender is {expected}"
                 )
 
-            status = 0 if self.fail_next_tx else 1
+            should_fail = self.fail_next_tx or (
+                self.fail_selector == "EVIDENCE" and data.startswith(SEL_SUBMIT_ATTESTED)
+            )
+            status = 0 if should_fail else 1
             self.fail_next_tx = False
             block_number = self._mine()
             receipt = {
@@ -185,8 +209,11 @@ class SimulatedEvmAdapter:
             self.txs[tx_hash] = {
                 "sender": sender,
                 "nonce": nonce,
+                "to": to,
+                "data_hex": data,
                 "block_number": block_number,
                 "receipt": receipt,
+                "effects": receipt.get("effects", []),
             }
             return tx_hash
 
@@ -201,6 +228,7 @@ class SimulatedEvmAdapter:
     def _execute(self, to, data_hex, sender, tx_hash, block_number, receipt):
         sel, args_hex = data_hex[:8], data_hex[8:]
         words = [args_hex[i:i + 64] for i in range(0, len(args_hex), 64)]
+        effects = receipt.setdefault("effects", [])
         if sel == SEL_CREATE_INCIDENT:
             ref = "0x" + words[0]
             title, severity = "0x" + words[1], "0x" + words[2]
@@ -213,6 +241,7 @@ class SimulatedEvmAdapter:
                 incident_id = self.incident_counter
                 self.case_ref_incidents[ref] = incident_id
                 self.case_ref_meta[ref] = (title, severity)
+                effects.append(("case_ref", ref))
             receipt["incidentId"] = incident_id
         elif sel == SEL_SUBMIT_ATTESTED:
             request_id = "0x" + words[1]
@@ -235,6 +264,7 @@ class SimulatedEvmAdapter:
                 "transaction_hash": tx_hash,
                 "manifest_digest": manifest,
             }
+            effects.append(("evidence", request_id))
             receipt["evidenceId"] = evidence_id
 
     def _mine(self) -> int:
@@ -267,13 +297,32 @@ class SimulatedEvmAdapter:
         )
 
     def reorg_from(self, block_number):
-        """Fork the chain: blocks >= block_number get new hashes (their txs
-        are no longer canonical). Receipts keep the stale blockHash."""
-        for number in list(self.blocks):
-            if number >= block_number:
-                self.blocks[number] = "0xreorg" + _keccak(
-                    f"reorg-{number}".encode()
-                ).hex()[:58]
+        """Fork the chain: blocks >= block_number get new hashes and their
+        transactions' contract effects REVERT (a real reorg unwinds state).
+        Receipts keep the stale blockHash — the observable state a node that
+        saw the pre-reorg receipt reports — so canonicality checks catch it.
+        Nonces of reverted transactions become allocatable again."""
+        with self.lock:
+            for number in list(self.blocks):
+                if number >= block_number:
+                    self.blocks[number] = "0xreorg" + _keccak(
+                        f"reorg-{number}".encode()
+                    ).hex()[:58]
+            for tx_hash, rec in self.txs.items():
+                if rec["block_number"] >= block_number and not rec.get("reverted"):
+                    rec["reverted"] = True
+                    self.executed_nonce[rec["sender"]] = max(
+                        0, self.executed_nonce.get(rec["sender"], 1) - 1
+                    )
+                    for effect in rec.get("effects", []):
+                        if effect[0] == "evidence":
+                            self.manifest_digests.pop(effect[1], None)
+                            self.manifest_evidence.pop(effect[1], None)
+                            self.evidence_counter = max(0, self.evidence_counter - 1)
+                        elif effect[0] == "case_ref":
+                            self.case_ref_incidents.pop(effect[1], None)
+                            self.case_ref_meta.pop(effect[1], None)
+                            self.incident_counter = max(0, self.incident_counter - 1)
 
     def stats(self):
         return {
