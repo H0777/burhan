@@ -89,8 +89,9 @@ def test_encrypted_at_rest_plaintext_and_dek_absent(key_env):
     for forbidden in ('"dek"', '"data_key"', '"plaintext_key"'):
         assert forbidden not in flat, f"plaintext DEK field {forbidden} present in metadata"
 
-    # The plaintext never appears in any file under the vault.
-    blob = b"".join(p.read_bytes() for p in vdir.rglob("*") if p.is_file())
+    # The plaintext never appears in ANY file under the vault — including
+    # the .tmp directory used by open_verified_stream (fix round 1).
+    blob = b"".join(p.read_bytes() for p in vault.rglob("*") if p.is_file())
     assert content not in blob, "plaintext found at rest"
 
     # Ciphertext object file differs from plaintext.
@@ -306,6 +307,53 @@ def test_open_verified_stream_gates_plaintext_on_tag(key_env):
     obj.write_bytes(bytes(tampered))
     with pytest.raises(ValueError, match="Integrity Compromised|GCM|auth"):
         store.open_verified_stream(institution_id="inst_a", evidence_id="ev-stream", object_version=1)
+
+
+def test_verified_stream_leaves_no_plaintext_residue(key_env):
+    """Fix round 1: the verified-plaintext temp file is DELETE-ON-CLOSE. After
+    the stream is fully consumed (explicit close or context exit) the vault —
+    .tmp included — holds no plaintext and no residue files; an abandoned
+    handle is unlinked by the finalizer backstop."""
+    import gc
+
+    store = key_env["store"]
+    content = b"verified stream residue check" * 512
+    store.put(
+        stream_or_bytes=io.BytesIO(content),
+        metadata={"file_name": "residue.bin"},
+        institution_id="inst_a",
+        evidence_id="ev-residue",
+        object_version=1,
+    )
+    tmp_dir = key_env["vault"] / ".tmp"
+
+    # 1. explicit close
+    fh = store.open_verified_stream(institution_id="inst_a", evidence_id="ev-residue", object_version=1)
+    assert fh.read() == content
+    fh.close()
+    residue = list(tmp_dir.iterdir()) if tmp_dir.exists() else []
+    assert residue == [], f"plaintext temp residue after close: {residue}"
+
+    # 2. context-manager exit
+    with store.open_verified_stream(
+        institution_id="inst_a", evidence_id="ev-residue", object_version=1
+    ) as fh2:
+        assert fh2.read(10) == content[:10]
+    residue = list(tmp_dir.iterdir()) if tmp_dir.exists() else []
+    assert residue == [], f"plaintext temp residue after context exit: {residue}"
+
+    # 3. finalizer backstop: handle abandoned without close()
+    fh3 = store.open_verified_stream(institution_id="inst_a", evidence_id="ev-residue", object_version=1)
+    pending = list(tmp_dir.iterdir())
+    assert len(pending) == 1, f"expected exactly one open temp file, got {pending}"
+    del fh3
+    gc.collect()
+    residue = list(tmp_dir.iterdir()) if tmp_dir.exists() else []
+    assert residue == [], f"finalizer left plaintext residue: {residue}"
+
+    # 4. whole-vault scan (including .tmp): plaintext nowhere at rest
+    blob = b"".join(p.read_bytes() for p in key_env["vault"].rglob("*") if p.is_file())
+    assert content not in blob, "verified plaintext persisted somewhere in the vault"
 
 
 def test_legacy_object_stays_legacy_plaintext_read_only(tmp_path):

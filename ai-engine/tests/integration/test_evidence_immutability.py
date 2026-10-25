@@ -11,6 +11,7 @@ These tests are written against the R06 EvidenceStore contract:
     marker; a version without its completion marker is not readable.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -333,3 +334,146 @@ def test_metadata_filename_traversal(store, vault):
     ev_root = vault / inst
     if ev_root.exists():
         assert list(ev_root.iterdir()) == [], f"unexpected artifacts: {list(ev_root.iterdir())}"
+
+
+# ---------------------------------------------------------------------------
+# R06 fix round 1: leaf-file containment on UNRESOLVED components
+# ---------------------------------------------------------------------------
+
+
+def _create_dir_link(link: Path, target: Path) -> None:
+    """Create a directory symlink where the host allows it, else a junction
+    (the privilege-free Windows equivalent)."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+
+
+def _remove_dir_link(link: Path) -> None:
+    if link.exists() or link.is_symlink() or link.is_junction():
+        try:
+            os.rmdir(str(link))
+        except OSError:
+            pass
+
+
+def test_symlink_scan_walks_unresolved_components(store, vault):
+    """The unresolved-component walk fires on a link component BEFORE
+    resolution — the old scan operated on already-resolved paths, where
+    resolve() had eliminated the links, and could never fire."""
+    outside = Path(tempfile.mkdtemp(prefix="r06_scan_outside_"))
+    try:
+        link = vault / "JUNC"
+        _create_dir_link(link, outside)
+        deep_target = link / "ev" / "v1" / "object.bin"
+        with pytest.raises(ValueError, match="symlink"):
+            store._check_no_symlinks(deep_target)
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+        _remove_dir_link(vault / "JUNC")
+
+
+def test_version_dir_link_escape_rejected(store, vault):
+    """Regression guard (runs everywhere): a published version directory
+    swapped for a link to an attacker directory containing a COMPLETE version
+    (marker + valid metadata + object) is rejected before any read."""
+    inst, ev = "INST-VDIR", "ev-vdir-1"
+    outside = Path(tempfile.mkdtemp(prefix="r06_vdir_outside_"))
+    try:
+        content = b"attacker-supplied bytes"
+        (outside / "object.bin").write_bytes(content)
+        attacker_meta = {
+            "evidence_id": ev,
+            "object_version": 1,
+            "institution_id": inst,
+            "file_name": "x.bin",
+            "display_name": "x.bin",
+            "content_type": "application/octet-stream",
+            "file_size": len(content),
+            "sha256_hash": hashlib.sha256(content).hexdigest(),
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "storage_format": "legacy_plaintext_read_only",
+            "metadata": {"file_name": "x.bin"},
+        }
+        (outside / "meta.json").write_text(json.dumps(attacker_meta), encoding="utf-8")
+        (outside / "COMMITTED.marker").write_text("x", encoding="utf-8")
+
+        (vault / inst).mkdir(parents=True, exist_ok=True)
+        _create_dir_link(vault / inst / ev, outside)
+
+        with pytest.raises(ValueError, match="symlink"):
+            store.open(institution_id=inst, evidence_id=ev, object_version=1)
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+        _remove_dir_link(vault / inst / ev)
+
+
+def test_leaf_file_symlink_rejected(store, vault):
+    """A file symlink planted at meta.json (and at object.bin) of a
+    legacy-format published version is rejected BEFORE any read — no
+    arbitrary-file-read through the store API.
+
+    Discriminating assertions: pre-fix, the store followed the link (meta
+    read succeeded, then failed later on hash mismatch with a DIFFERENT
+    message; the outside file was read). Post-fix, the link is detected on
+    the unresolved component before any read.
+
+    Skips only where the host cannot create file symlinks (Windows without
+    SeCreateSymbolicLinkPrivilege); the junction tests above cover link
+    rejection privilege-free there.
+    """
+    outside = Path(tempfile.mkdtemp(prefix="r06_leaf_outside_"))
+    try:
+        inst, ev = "INST-LEAF", "ev-leaf-1"
+        content = b"honest legacy plaintext bytes"
+        store.put(
+            stream_or_bytes=io.BytesIO(content),
+            metadata={"file_name": "honest.txt"},
+            institution_id=inst,
+            evidence_id=ev,
+            object_version=1,
+        )
+        vdir = vault / inst / ev / "v1"
+
+        attacker_content = b"ATTACKER ARBITRARY FILE CONTENT"
+        attacker_meta = {
+            "evidence_id": ev,
+            "object_version": 1,
+            "institution_id": inst,
+            "file_name": "honest.txt",
+            "content_type": "text/plain",
+            "file_size": len(attacker_content),
+            "sha256_hash": hashlib.sha256(attacker_content).hexdigest(),
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "metadata": {"file_name": "honest.txt"},
+        }
+        (outside / "attacker_meta.json").write_text(json.dumps(attacker_meta), encoding="utf-8")
+        (outside / "attacker_object.bin").write_bytes(attacker_content)
+
+        # 1. meta.json leaf: unlink the honest metadata, link to attacker's.
+        real_meta = (vdir / "meta.json").read_bytes()
+        (vdir / "meta.json").unlink()
+        try:
+            os.symlink(outside / "attacker_meta.json", vdir / "meta.json")
+        except (OSError, NotImplementedError):
+            pytest.skip(
+                "file symlink creation unavailable on this host "
+                "(no SeCreateSymbolicLinkPrivilege); junction tests cover link rejection"
+            )
+        with pytest.raises(ValueError, match="symlink"):
+            store.open(institution_id=inst, evidence_id=ev, object_version=1)
+
+        # restore honest metadata
+        (vdir / "meta.json").unlink()
+        (vdir / "meta.json").write_bytes(real_meta)
+
+        # 2. object.bin leaf: honest metadata inside, object links OUTSIDE.
+        (vdir / "object.bin").unlink()
+        os.symlink(outside / "attacker_object.bin", vdir / "object.bin")
+        with pytest.raises(ValueError, match="symlink"):
+            store.open(institution_id=inst, evidence_id=ev, object_version=1)
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)

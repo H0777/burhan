@@ -34,6 +34,7 @@ import json
 import os
 import re
 import uuid
+import weakref
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Optional, Tuple
@@ -83,6 +84,59 @@ class StoredEvidence(BaseModel):
     created_at: datetime
     display_name: str = ""
     storage_format: str = ""
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+class _DeletingBinaryReader:
+    """Read-only binary view over a temp file that UNLINKS the file on close
+    (delete-on-close), with a best-effort ``weakref.finalize`` backstop for
+    handles that are abandoned without an explicit ``close()``.
+
+    Verified plaintext therefore exists on disk only while the stream is
+    open — nothing accumulates inside the vault's ``.tmp`` directory.
+    """
+
+    def __init__(self, path: Path):
+        self._path = str(path)
+        self._fh = open(self._path, "rb")
+        fh, tmp_path = self._fh, self._path
+
+        def _cleanup():
+            # Close BEFORE unlinking: on Windows an open handle cannot be
+            # deleted (no FILE_SHARE_DELETE on Python's open()).
+            try:
+                fh.close()
+            except Exception:  # noqa: BLE001 - best-effort backstop
+                pass
+            _unlink_quietly(tmp_path)
+
+        self._finalizer = weakref.finalize(self, _cleanup)
+
+    def close(self) -> None:
+        fh = self.__dict__.get("_fh")
+        if fh is not None and not fh.closed:
+            fh.close()
+        finalizer = self.__dict__.get("_finalizer")
+        if finalizer is not None:
+            finalizer()  # unlink now; idempotent, detaches the callback
+
+    def __enter__(self) -> "_DeletingBinaryReader":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        return False
+
+    def __getattr__(self, name: str):
+        # Delegate the BinaryIO surface (read/readline/seek/tell/readable/...)
+        # to the underlying file object.
+        return getattr(self.__dict__["_fh"], name)
 
 
 class EvidenceStore:
@@ -147,35 +201,34 @@ class EvidenceStore:
 
     def _check_no_symlinks(self, path: Path) -> None:
         """Reject any symlinked (or junction — the privilege-free Windows
-        equivalent) component between the store root and path."""
-        resolved = Path(path).resolve()
-        if resolved == self.base_dir:
-            return
-        current = resolved
-        while current != self.base_dir:
+        equivalent) component in the UNRESOLVED path between the store root
+        and ``path``, walking from the leaf upward.
+
+        MUST be called on the unresolved path BEFORE ``Path.resolve()``:
+        resolve() eliminates symlink/junction components, so scanning the
+        resolved chain can never fire (a no-op lending false confidence).
+        This checks component TYPE only — containment of the resolved path
+        is ``validate_within_root``'s job; every read path applies BOTH.
+        """
+        current = Path(path)
+        while True:
             if current.is_symlink():
                 raise ValueError(f"symlink detected in vault path: {current}")
             if current.is_junction():
                 raise ValueError(f"symlink/junction detected in vault path: {current}")
+            if current == self.base_dir:
+                return
             parent = current.parent
             if parent == current:
-                break
+                # Walked to the filesystem root without meeting the store
+                # root: not our subtree — containment is validated separately.
+                return
             current = parent
 
     def _check_no_symlinks_below_root(self, candidate: Path) -> None:
-        """Walk the UNRESOLVED candidate below the root and reject symlinked
-        components BEFORE resolution (a symlinked component would otherwise
-        surface as a containment escape, hiding the real cause)."""
-        current = candidate
-        while current != self.base_dir:
-            if current.is_symlink():
-                raise ValueError(f"symlink detected in vault path: {current}")
-            if current.is_junction():
-                raise ValueError(f"symlink/junction detected in vault path: {current}")
-            parent = current.parent
-            if parent == current:
-                break
-            current = parent
+        """Unresolved-component symlink/junction scan for a candidate below
+        the root (same walk as :meth:`_check_no_symlinks`)."""
+        self._check_no_symlinks(candidate)
 
     def _scoped_evidence_dir(self, institution_id: str, evidence_id: str) -> Path:
         clean_inst = self._sanitize_path_segment(institution_id, "institution_id")
@@ -184,7 +237,6 @@ class EvidenceStore:
         self._check_no_symlinks_below_root(candidate)
         ev_dir = candidate.resolve()
         self.validate_within_root(ev_dir)
-        self._check_no_symlinks(ev_dir)
         return ev_dir
 
     # ------------------------------------------------------------------
@@ -342,7 +394,11 @@ class EvidenceStore:
         the marker exists, so removing an unmarked claim cannot race another
         writer (they can never have created it).
         """
-        version_dir = (ev_dir / f"v{object_version}").resolve()
+        version_candidate = ev_dir / f"v{object_version}"
+        # Same link discipline as the read path: unresolved-component scan
+        # BEFORE resolution, then resolved containment.
+        self._check_no_symlinks(version_candidate)
+        version_dir = version_candidate.resolve()
         self.validate_within_root(version_dir)
 
         # os.mkdir is the no-replace primitive: it fails atomically when the
@@ -408,7 +464,12 @@ class EvidenceStore:
                 f"Evidence version {version_dir.name} has no completion marker; "
                 "unpublished or incomplete objects are never readable"
             )
-        meta_file = version_dir / _META_FILE
+        meta_candidate = version_dir / _META_FILE
+        # Leaf-file link scan on the UNRESOLVED candidate, then resolved
+        # containment — a symlinked/junctioned meta.json is never read.
+        self._check_no_symlinks(meta_candidate)
+        meta_file = meta_candidate.resolve()
+        self.validate_within_root(meta_file)
         if not meta_file.exists():
             raise ValueError(
                 f"Evidence object at {version_dir} is missing required metadata; refusing to open"
@@ -440,19 +501,28 @@ class EvidenceStore:
         """
         ev_dir = self._scoped_evidence_dir(institution_id, evidence_id)
         clean_ev = self._sanitize_path_segment(evidence_id, "evidence_id")
-        version_dir = (ev_dir / f"v{object_version}").resolve()
+        version_candidate = ev_dir / f"v{object_version}"
+        # Unresolved-component link scan BEFORE resolution, then resolved
+        # containment — resolve() alone would silently follow the link and
+        # then reject it as an escape, hiding the real cause.
+        self._check_no_symlinks(version_candidate)
+        version_dir = version_candidate.resolve()
         self.validate_within_root(version_dir)
-        self._check_no_symlinks(version_dir)
 
         if version_dir.is_dir():
             meta = self._load_version_meta(version_dir)
             self._assert_meta_identity(meta, institution_id, clean_ev, object_version)
-            object_file = version_dir / _OBJECT_FILE
+            object_candidate = version_dir / _OBJECT_FILE
+            # Leaf-file link scan on the UNRESOLVED candidate, then resolved
+            # containment — a symlinked object.bin is never read (no
+            # arbitrary-file-read through the store API).
+            self._check_no_symlinks(object_candidate)
+            object_file = object_candidate.resolve()
+            self.validate_within_root(object_file)
             if not object_file.exists():
                 raise FileNotFoundError(
                     f"Underlying evidence object missing at {object_file}"
                 )
-            self._check_no_symlinks(object_file)
             stored_bytes = object_file.read_bytes()
             storage_format = meta.get("storage_format", LEGACY_PLAINTEXT_FORMAT)
             if storage_format == STORAGE_FORMAT:
@@ -469,18 +539,23 @@ class EvidenceStore:
     def _open_legacy_flat(
         self, ev_dir: Path, institution_id: str, evidence_id: str, object_version: int
     ) -> Tuple[bytes, Dict[str, Any]]:
-        meta_file = (ev_dir / f"v{object_version}_meta.json").resolve()
+        meta_candidate = ev_dir / f"v{object_version}_meta.json"
+        # Leaf-file link scan on the UNRESOLVED candidate, then resolved
+        # containment — a symlinked legacy meta file is never read.
+        self._check_no_symlinks(meta_candidate)
+        meta_file = meta_candidate.resolve()
+        self.validate_within_root(meta_file)
         if not meta_file.exists():
             raise FileNotFoundError(
                 f"Evidence {evidence_id} v{object_version} not found in vault"
             )
-        self._check_no_symlinks(meta_file)
         with open(meta_file, "r", encoding="utf-8") as f:
             meta = json.load(f)
         file_name = meta["file_name"]
-        target_file = (ev_dir / f"v{object_version}_{file_name}").resolve()
+        target_candidate = ev_dir / f"v{object_version}_{file_name}"
+        self._check_no_symlinks(target_candidate)
+        target_file = target_candidate.resolve()
         self.validate_within_root(target_file)
-        self._check_no_symlinks(target_file)
         if not target_file.exists():
             raise FileNotFoundError(f"Underlying evidence object missing at {target_file}")
         data = target_file.read_bytes()
@@ -569,9 +644,10 @@ class EvidenceStore:
         """Load a published version's metadata WITHOUT reading the object
         bytes (used by the broker to persist encryption metadata)."""
         ev_dir = self._scoped_evidence_dir(institution_id, evidence_id)
-        version_dir = (ev_dir / f"v{object_version}").resolve()
+        version_candidate = ev_dir / f"v{object_version}"
+        self._check_no_symlinks(version_candidate)
+        version_dir = version_candidate.resolve()
         self.validate_within_root(version_dir)
-        self._check_no_symlinks(version_dir)
         if not version_dir.is_dir():
             raise FileNotFoundError(
                 f"Evidence {evidence_id} v{object_version} not found in vault"
@@ -584,10 +660,18 @@ class EvidenceStore:
         evidence_id: str,
         object_version: int,
     ) -> BinaryIO:
-        """Large/verified read: plaintext is released as a stream only AFTER
-        the GCM tag (or legacy hash) verification succeeds. The verified
+        """Verified read as a stream: plaintext is released only AFTER the
+        GCM tag (or legacy hash) verification succeeds. The verified
         plaintext is staged into a protected temp file inside the vault's
-        ``.tmp`` directory (never the caller's paths)."""
+        ``.tmp`` directory (never the caller's paths) and the returned handle
+        is DELETE-ON-CLOSE — the file is unlinked when the stream is closed
+        (or garbage-collected), so no plaintext residue accumulates in the
+        vault.
+
+        Honesty note: verification buffers through :meth:`open` first, so
+        memory is bounded by the 25 MiB object limit; this API guarantees
+        verified bytes, not streaming memory savings for large reads.
+        """
         data, _meta = self.open(institution_id, evidence_id, object_version)
 
         tmp_dir = (self.base_dir / ".tmp").resolve()
@@ -603,7 +687,7 @@ class EvidenceStore:
             os.chmod(tmp_file, 0o600)  # best-effort on Windows ACLs
         except OSError:
             pass
-        return open(tmp_file, "rb")
+        return _DeletingBinaryReader(tmp_file)
 
     # ------------------------------------------------------------------
     # legacy migration (explicit, never silent)
