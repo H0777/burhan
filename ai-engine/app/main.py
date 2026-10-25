@@ -20,6 +20,7 @@ from app.routes.v2 import transactions as transactions_v2
 from app.routes.v2 import risk as risk_v2
 from app.routes.v2 import reports as reports_v2
 from app.routes.v2 import scanner as scanner_v2
+from app.routes.v3 import evidence as evidence_v3
 from app.config import settings
 
 
@@ -78,6 +79,8 @@ app.include_router(transactions_v2.imports_router, prefix="/api/v2/imports", tag
 app.include_router(risk_v2.router, prefix="/api/v2/risk", tags=["Risk V2"])
 app.include_router(reports_v2.router, prefix="/api/v2", tags=["Reports V2"])
 app.include_router(scanner_v2.router, prefix="/api/v2/scanner", tags=["Scanner V2"])
+# R07 (spec §5): V3 verification — identifiers only, pinned chain snapshots
+app.include_router(evidence_v3.router, prefix="/api/v3/evidence", tags=["Evidence V3"])
 
 
 @app.get("/api/v1/health", tags=["System"])

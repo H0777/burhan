@@ -37,22 +37,30 @@ RUN = uuid.uuid4().hex[:8]
 TENANT_A = f"inst_r07_a_{RUN}"
 TENANT_B = f"inst_r07_b_{RUN}"
 CASE_A = f"case_r07_a_{RUN}"
+CASE_A2 = f"case_r07_a2_{RUN}"
 CASE_B = f"case_r07_b_{RUN}"
 EV1 = f"ev_r07_1_{RUN}"
 EV2 = f"ev_r07_2_{RUN}"
+EV_A2 = f"ev_r07_a2_{RUN}"
 EV_B = f"ev_r07_b_{RUN}"
 
 CHAIN_ID = 31337
 CONTRACT = "0x" + "aa" * 20
 WRITER = "0x" + "c0" * 20
+OTHER_WRITER = "0x" + "d0" * 20
 GOVERNANCE = "0x" + "9a" * 20
+FAKE_CODE = "0x" + "60" * 40
+from Crypto.Hash import keccak as _keccak
+
+_k = _keccak.new(digest_bits=256)
+_k.update(b"\x60" * 40)
+GOOD_CODEHASH = "0x" + _k.hexdigest()
 DEPLOYMENT_ID = "0x" + os.urandom(32).hex()
 DEPLOYED_AT_BLOCK = 5
 CONFIRMATION_DEPTH = 2
 LATEST_BLOCK = 40
 SNAPSHOT_BLOCK = LATEST_BLOCK - CONFIRMATION_DEPTH + 1  # latest-depth+1
 SNAPSHOT_HASH = "0x" + "51" * 32
-GOOD_CODEHASH = "0x" + "66" * 32
 
 PG_APP_URL = os.environ.get(
     "R07_DATABASE_URL", "postgresql://ira_aml_app:r07app@127.0.0.1:55437/ira_aml_r07"
@@ -67,41 +75,149 @@ PG_MIGRATION_URL = os.environ.get(
 # PostgreSQL fixtures (R11/R12 conventions)
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
-def pg_urls():
+# ---------------------------------------------------------------------------
+# Process-wide shared state (single migration + single seed per pytest run).
+# A plain lru_cache singleton — NOT pytest fixtures — because imported
+# fixtures instantiate once per importing module, which would re-seed and
+# re-generate key material (breaking signature checks against DB rows).
+# ---------------------------------------------------------------------------
+
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def shared_state():
+    from app.db.models import Institution
+    from app.db.session import tenant_transaction
+    from app.repositories import case_repository
+    from app.security.key_provider import LocalFileKeyProvider
+    from app.security.signing import Signer, TrustRegistry, encode_public_key
+    from app.services.evidence_broker import EvidenceBroker
+    from app.services.evidence_store import EvidenceStore
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    import tempfile
+
     if not PG_APP_URL.startswith("postgresql") or not PG_MIGRATION_URL.startswith("postgresql"):
         pytest.skip("R07 requires disposable PostgreSQL (r07-pg-test)")
-    return PG_APP_URL, PG_MIGRATION_URL
 
-
-@pytest.fixture(scope="module")
-def app_engine(pg_urls):
-    engine = create_engine(pg_urls[0], pool_pre_ping=True)
-    yield engine
-    engine.dispose()
-
-
-@pytest.fixture(scope="module")
-def owner_engine(pg_urls):
-    engine = create_engine(pg_urls[1], pool_pre_ping=True)
-    yield engine
-    engine.dispose()
-
-
-@pytest.fixture(scope="module")
-def migrated_db(pg_urls):
+    # 1. migrate to head (r07_verification_snapshots)
     result = subprocess.run(
         ["node", str(REPO_ROOT / "scripts" / "run-python.js"), "-m", "alembic", "upgrade", "head"],
         cwd=str(AI_ENGINE_DIR),
-        env={**os.environ, "MIGRATION_DATABASE_URL": pg_urls[1]},
+        env={**os.environ, "MIGRATION_DATABASE_URL": PG_MIGRATION_URL},
         capture_output=True,
         text=True,
         timeout=300,
     )
     if result.returncode != 0:
         pytest.fail(f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}")
-    with create_engine(pg_urls[1]).connect() as conn:
-        return conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    with create_engine(PG_MIGRATION_URL).connect() as conn:
+        head = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+
+    # 2. key custody + trust registry + encrypted store (one tmp tree)
+    base = Path(tempfile.mkdtemp(prefix="r07keys_"))
+    for inst in (TENANT_A, TENANT_B):
+        d = base / inst
+        d.mkdir(parents=True)
+        (d / "k_active.seed").write_bytes(os.urandom(32))
+        (d / "k_retired.seed").write_bytes(os.urandom(32))
+        (d / "current").write_text("k_active")
+    keys = LocalFileKeyProvider(str(base))
+
+    def entry(inst, key_id, status):
+        seed = (base / inst / f"{key_id}.seed").read_bytes()
+        pub = Ed25519PrivateKey.from_private_bytes(seed).public_key()
+        return {
+            "institution_id": inst,
+            "key_id": key_id,
+            "public_key": encode_public_key(pub),
+            "valid_from": "2025-01-01T00:00:00+00:00",
+            "valid_until": "2027-01-01T00:00:00+00:00",
+            "status": status,
+        }
+
+    registry = TrustRegistry(
+        [
+            entry(TENANT_A, "k_active", "active"),
+            entry(TENANT_A, "k_retired", "retired"),
+            entry(TENANT_B, "k_active", "active"),
+        ]
+    )
+    store = EvidenceStore(
+        base_dir=tempfile.mkdtemp(prefix="r07vault_"), key_provider=keys
+    )
+
+    # 3. engines + institutions
+    owner_engine = create_engine(PG_MIGRATION_URL, pool_pre_ping=True)
+    app_engine = create_engine(PG_APP_URL, pool_pre_ping=True)
+    OwnerSession = sessionmaker(bind=owner_engine)
+    with OwnerSession() as owner:
+        for inst, name in ((TENANT_A, "R07 A"), (TENANT_B, "R07 B")):
+            if owner.get(Institution, inst) is None:
+                owner.add(Institution(id=inst, name=name))
+        owner.commit()
+
+    # 4. seed cases + REAL broker evidence
+    Session = sessionmaker(bind=app_engine)
+    broker = EvidenceBroker(evidence_store=store, signer=Signer(keys))
+    out = {}
+
+    def submit(inst, case_id, evidence_id, file_name, content):
+        with Session() as session:
+            with tenant_transaction(session, inst):
+                if case_repository.get_case(session, inst, case_id) is None:
+                    case_repository.create_case(
+                        session, inst, case_number=f"R07-{case_id}", title="R07", case_id=case_id
+                    )
+            with tenant_transaction(session, inst):
+                return broker.submit_case_evidence(
+                    session=session,
+                    identity=make_identity(inst),
+                    case_id=case_id,
+                    file_name=file_name,
+                    content_type="application/pdf",
+                    stream=io.BytesIO(content),
+                    evidence_id=evidence_id,
+                )
+
+    out["ev1"] = submit(TENANT_A, CASE_A, EV1, "s1.pdf", b"R07 payload one " + RUN.encode())
+    out["ev2"] = submit(TENANT_A, CASE_A, EV2, "s2.pdf", b"R07 payload two " + RUN.encode())
+    out["ev_a2"] = submit(TENANT_A, CASE_A2, EV_A2, "a2.pdf", b"R07 same-tenant other case payload")
+    out["ev_b"] = submit(TENANT_B, CASE_B, EV_B, "b.pdf", b"R07 tenant B payload")
+
+    return {
+        "head": head,
+        "keys": keys,
+        "trust_registry": registry,
+        "store": store,
+        "owner_engine": owner_engine,
+        "app_engine": app_engine,
+        "seeded": out,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Thin pytest fixtures over the shared singleton (both test modules)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def pg_urls():
+    return PG_APP_URL, PG_MIGRATION_URL
+
+
+@pytest.fixture(scope="session")
+def app_engine(pg_urls):
+    return shared_state()["app_engine"]
+
+
+@pytest.fixture(scope="session")
+def owner_engine(pg_urls):
+    return shared_state()["owner_engine"]
+
+
+@pytest.fixture(scope="session")
+def migrated_db(pg_urls):
+    return shared_state()["head"]
 
 
 def test_migration_head_is_r07(migrated_db):
@@ -113,51 +229,19 @@ def test_migration_head_is_r07(migrated_db):
 # keys / trust registry / store
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def keys(tmp_path_factory):
-    from app.security.key_provider import LocalFileKeyProvider
-
-    base = tmp_path_factory.mktemp("r07keys")
-    for inst in (TENANT_A, TENANT_B):
-        d = base / inst
-        d.mkdir(parents=True)
-        (d / "k_active.seed").write_bytes(os.urandom(32))
-        (d / "k_retired.seed").write_bytes(os.urandom(32))
-        (d / "current").write_text("k_active")
-    return LocalFileKeyProvider(str(base))
+    return shared_state()["keys"]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def trust_registry(keys):
-    from app.security.signing import TrustRegistry, encode_public_key
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    def entry(inst, key_id, status):
-        seed = (keys.base_dir / inst / f"{key_id}.seed").read_bytes()
-        pub = Ed25519PrivateKey.from_private_bytes(seed).public_key()
-        return {
-            "institution_id": inst,
-            "key_id": key_id,
-            "public_key": encode_public_key(pub),
-            "valid_from": "2025-01-01T00:00:00+00:00",
-            "valid_until": "2027-01-01T00:00:00+00:00",
-            "status": status,
-        }
-
-    return TrustRegistry(
-        [
-            entry(TENANT_A, "k_active", "active"),
-            entry(TENANT_A, "k_retired", "retired"),
-            entry(TENANT_B, "k_active", "active"),
-        ]
-    )
+    return shared_state()["trust_registry"]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def store(tmp_path_factory, keys):
-    from app.services.evidence_store import EvidenceStore
-
-    return EvidenceStore(base_dir=str(tmp_path_factory.mktemp("r07vault")), key_provider=keys)
+    return shared_state()["store"]
 
 
 def make_identity(institution_id, sub="usr_r07_a"):
@@ -174,50 +258,12 @@ def make_identity(institution_id, sub="usr_r07_a"):
 
 # ---------------------------------------------------------------------------
 # Seed: institutions, cases, REAL broker evidence (R06 store + signed manifest)
+# — all inside shared_state(); this is only the thin fixture.
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def seeded(migrated_db, app_engine, owner_engine, store, keys):
-    from app.db.models import Institution
-    from app.db.session import tenant_transaction
-    from app.repositories import case_repository
-    from app.services.evidence_broker import EvidenceBroker
-    from app.security.signing import Signer
-
-    OwnerSession = sessionmaker(bind=owner_engine)
-    with OwnerSession() as owner:
-        for inst, name in ((TENANT_A, "R07 A"), (TENANT_B, "R07 B")):
-            if owner.get(Institution, inst) is None:
-                owner.add(Institution(id=inst, name=name))
-        owner.commit()
-
-    Session = sessionmaker(bind=app_engine)
-    broker = EvidenceBroker(evidence_store=store, signer=Signer(keys))
-    out = {}
-
-    def submit(inst, case_id, evidence_id, file_name, content):
-        with Session() as session:
-            with tenant_transaction(session, inst):
-                if case_repository.get_case(session, inst, case_id) is None:
-                    case_repository.create_case(
-                        session, inst, case_number=f"R07-{case_id}", title="R07", case_id=case_id
-                    )
-            with tenant_transaction(session, inst):
-                res = broker.submit_case_evidence(
-                    session=session,
-                    identity=make_identity(inst),
-                    case_id=case_id,
-                    file_name=file_name,
-                    content_type="application/pdf",
-                    stream=io.BytesIO(content),
-                    evidence_id=evidence_id,
-                )
-        return res
-
-    out["ev1"] = submit(TENANT_A, CASE_A, EV1, "s1.pdf", b"R07 payload one " + RUN.encode())
-    out["ev2"] = submit(TENANT_A, CASE_A, EV2, "s2.pdf", b"R07 payload two " + RUN.encode())
-    out["ev_b"] = submit(TENANT_B, CASE_B, EV_B, "b.pdf", b"R07 tenant B payload")
-    return out
+    return shared_state()["seeded"]
 
 
 # ---------------------------------------------------------------------------
@@ -230,12 +276,12 @@ class FakeChain:
     def __init__(self):
         self.latest = LATEST_BLOCK
         self.block_hashes = {LATEST_BLOCK: SNAPSHOT_HASH}
-        self.code = {CONTRACT: "0x" + "60" * 40}
+        self.code = {CONTRACT: FAKE_CODE}
         self.rpc_down = False
         self.missing_method = False
         self.reorged = False
         self.codehash_override = None
-        self.incident_for_case = {CASE_A: 1}
+        self.incident_for_case = {}  # ref -> incident; default 1 (single-case fake)
         self.writer_events = []  # (EventPosition, writer, authorized)
         self.entries = {}  # incident_id -> [AnchoredEntry-like dict]
         self.manifest_digests = {}  # request_id -> digest
@@ -257,42 +303,77 @@ class FakeChain:
 
 
 def build_chain_for(seeded, tamper=None):
-    """Anchor both TENANT_A evidence objects on the fake chain (attested path)
-    and build the reader bindings. tamper: callable(chain, entries, digests)."""
+    """Anchor the TENANT_A evidence objects (ev1, ev2, ev_a2) on the fake
+    chain (attested path) with REAL canonical V2 entry hashes. tamper:
+    callable(chain, entries, digests)."""
+    from app.schemas.evidence import EvidenceV2, hash_entry
     from app.services.anchor_reader import AnchoredEntry, EventPosition
 
     chain = FakeChain()
     digests = {}
     entries = []
-    for idx, key in enumerate(("ev1", "ev2")):
+    for idx, key in enumerate(("ev1", "ev2", "ev_a2")):
         ev = seeded[key]
         digest = "0x" + ev["manifest_digest"]
         digests[ev["anchor_request_id"]] = digest
         chain.manifest_digests[ev["anchor_request_id"]] = digest
-        pos = EventPosition(block_number=SNAPSHOT_BLOCK + idx, transaction_index=idx, log_index=0)
+        pos = EventPosition(block_number=SNAPSHOT_BLOCK, transaction_index=idx, log_index=idx)
+        prev = "0x" + "00" * 32 if idx == 0 else entries[idx - 1].entry_hash
+        v2 = EvidenceV2(
+            schema_version=2,
+            chain_id=CHAIN_ID,
+            contract_address=CONTRACT,
+            incident_id=1,
+            evidence_id=idx + 1,
+            submitted_by=WRITER,
+            timestamp=1770000000 + idx,
+            evidence_type_hash="0x" + "11" * 32,
+            description_hash="0x" + "22" * 32,
+            evidence_hash="0x" + ev["sha256_hash"],
+            previous_entry_hash=prev,
+        )
         entries.append(
             AnchoredEntry(
                 evidence_id=str(idx + 1),
                 incident_id="1",
                 submitted_by=WRITER,
-                timestamp=1770000000 + idx,
-                evidence_type_hash="0x" + "11" * 32,
-                description_hash="0x" + "22" * 32,
-                evidence_hash="0x" + ev["sha256_hash"],
-                previous_entry_hash="0x" + "00" * 32 if idx == 0 else entries[idx - 1].entry_hash,
-                entry_hash="0x" + os.urandom(32).hex(),
+                timestamp=v2.timestamp,
+                evidence_type_hash=v2.evidence_type_hash,
+                description_hash=v2.description_hash,
+                evidence_hash=v2.evidence_hash,
+                previous_entry_hash=prev,
+                entry_hash=hash_entry(v2),
                 request_id=ev["anchor_request_id"],
                 manifest_digest=digest,
                 event_position=pos,
             )
         )
-    chain.add_entry(1, entries[0])
-    chain.add_entry(1, entries[1])
+    for e in entries:
+        chain.add_entry(1, e)
     # writer authorized from before the first append
     chain.grant(FakeChain.pos(DEPLOYED_AT_BLOCK, 0, 0), WRITER, True)
     if tamper:
         tamper(chain, entries, digests)
     return chain
+
+
+def set_evidence_manifest(inst, evidence_id, envelope_json, digest):
+    """Point an evidence row's manifest columns at (envelope_json, digest).
+    Pass None/None to simulate a legacy unsigned row. Used by the adversarial
+    tests; each caller restores the original values afterwards."""
+    from app.db.session import tenant_transaction
+    from sqlalchemy import update
+    from app.db.models import EvidenceObject
+    from sqlalchemy.orm import sessionmaker
+
+    Session = sessionmaker(bind=shared_state()["app_engine"])
+    with Session() as session:
+        with tenant_transaction(session, inst):
+            session.execute(
+                update(EvidenceObject)
+                .where(EvidenceObject.evidence_id == evidence_id)
+                .values(manifest_envelope_json=envelope_json, manifest_digest=digest)
+            )
 
 
 def make_binding(with_codehash=True):
@@ -324,10 +405,10 @@ def make_fake_reader(chain, binding=None):
 # The FakeChain must expose the SAME low-level surface AnchorReader consumes
 # from a real EvmRpcClient. Defined once here; bound as methods below.
 def _rpc_block(self, number):
-    from app.services.anchor_reader import RpcUnavailableError
-
     if self.rpc_down:
         raise ConnectionError("rpc down")
+    if number == "latest":
+        number = self.latest
     self.journal.append(("eth_getBlockByNumber", number))
     if self.reorged:
         return {"number": number, "hash": "0x" + "99" * 32}
@@ -342,8 +423,6 @@ def _rpc_code(self, address, block_number):
 
 
 def _rpc_logs(self, address, from_block, to_block):
-    from app.services.anchor_reader import RpcUnavailableError
-
     if self.rpc_down:
         raise ConnectionError("rpc down")
     if self.missing_method:
@@ -371,23 +450,38 @@ def _rpc_call(self, to, data, block_number):
     if self.rpc_down:
         raise ConnectionError("rpc down")
     self.journal.append(("eth_call", block_number))
-    # dispatch by selector embedded in data (the FakeChain protocol)
-    if data.startswith("0xincident:"):
-        return "1"
-    if data.startswith("0xentries:"):
-        incident_id = int(data.split(":")[1])
-        return list(self.entries.get(incident_id, []))
+    if data.startswith("0xincident_for_case:"):
+        return str(self.incident_for_case.get(data.split(":", 1)[1], 1))
     if data.startswith("0xdigest:"):
         return self.manifest_digests.get(data.split(":", 1)[1])
-    if data.startswith("0xcodehash:"):
-        return self.codehash_override or GOOD_CODEHASH
     raise RuntimeError(f"unknown call {data[:40]}")
+
+
+def _rpc_read_incident(self, binding, incident_id, snapshot):
+    from app.services.anchor_reader import AnchoredIncident
+
+    if self.rpc_down:
+        raise ConnectionError("rpc down")
+    self.journal.append(("read_incident", snapshot.block_number))
+    # pin semantics: only entries appended AT or BEFORE the pinned block exist
+    # at this read point — a later append is invisible at the pin.
+    entries = [
+        e for e in self.entries.get(incident_id, [])
+        if e.event_position is None or e.event_position.block_number <= snapshot.block_number
+    ]
+    return AnchoredIncident(
+        incident_id=incident_id,
+        entries=entries,
+        evidence_count=len(entries),
+        head_entry_hash=entries[-1].entry_hash if entries else None,
+    )
 
 
 FakeChain.get_block = _rpc_block
 FakeChain.get_code = _rpc_code
 FakeChain.get_logs = _rpc_logs
 FakeChain.raw_call = _rpc_call
+FakeChain.read_incident = _rpc_read_incident
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +568,7 @@ def test_fabricated_entries_same_count_never_verify(seeded, app_engine, keys, st
     """Same entry count on-chain but completely different content/digests."""
 
     def tamper(chain, entries, digests):
-        for e in chain.entries[1]:
+        for key, e in zip(("ev1", "ev2"), chain.entries[1]):
             e.request_id = "0x" + "ee" * 32
             e.manifest_digest = "0x" + "ee" * 32
         chain.manifest_digests.clear()
@@ -520,10 +614,10 @@ def test_missing_rpc_method(seeded, app_engine, keys, store, trust_registry):
 def test_missing_file(seeded, app_engine, keys, store, trust_registry):
     import shutil
 
-    ev_dir = store._scoped_evidence_dir(TENANT_A, EV1)
+    ev_dir = store._scoped_evidence_dir(TENANT_A, EV_A2)
     shutil.rmtree(ev_dir, ignore_errors=True)
     result = verify_service(
-        seeded, build_chain_for(seeded), [EV1],
+        seeded, build_chain_for(seeded), [EV_A2], case_id=CASE_A2,
         db_engine=app_engine, keys_fixture=keys, store_fixture=store, registry_fixture=trust_registry,
     )
     assert result.status == "invalid"
@@ -532,112 +626,106 @@ def test_missing_file(seeded, app_engine, keys, store, trust_registry):
 
 def test_tampered_file(seeded, app_engine, keys, store, trust_registry):
     ev_dir = store._scoped_evidence_dir(TENANT_A, EV2)
-    obj = ev_dir / "v1" / "object.enc"
-    if not obj.exists():
-        obj = next((ev_dir / "v1").glob("*"), None)
-    assert obj is not None
-    data = bytearray(obj.read_bytes())
+    obj = ev_dir / "v1" / "object.bin"  # the R06 ciphertext object
+    assert obj.exists(), f"expected encrypted object at {obj}"
+    original = obj.read_bytes()
+    data = bytearray(original)
     data[-1] ^= 0xFF
     obj.write_bytes(bytes(data))
-    result = verify_service(
-        seeded, build_chain_for(seeded), [EV2],
-        db_engine=app_engine, keys_fixture=keys, store_fixture=store, registry_fixture=trust_registry,
-    )
-    assert result.status == "invalid"
+    try:
+        result = verify_service(
+            seeded, build_chain_for(seeded), [EV2],
+            db_engine=app_engine, keys_fixture=keys, store_fixture=store,
+            registry_fixture=trust_registry,
+        )
+        assert result.status == "invalid"
+        assert any("file" in r for r in result.reasons)
+    finally:
+        obj.write_bytes(original)  # keep the shared seed intact
 
 
 def test_unsigned_manifest(seeded, app_engine, keys, store, trust_registry):
     """Legacy rows without a signed manifest are classified
     legacy_unattested / chain_generated_unattested — never verified."""
-    from app.db.session import tenant_transaction
-    from sqlalchemy import update
-    from app.db.models import EvidenceObject
-
-    Session = sessionmaker(bind=app_engine)
-    with Session() as session:
-        with tenant_transaction(session, TENANT_A):
-            session.execute(
-                update(EvidenceObject)
-                .where(EvidenceObject.evidence_id == EV1)
-                .values(manifest_envelope_json=None, manifest_digest=None)
-            )
-    result = verify_service(
-        seeded, build_chain_for(seeded), [EV1],
-        db_engine=app_engine, keys_fixture=keys, store_fixture=store, registry_fixture=trust_registry,
-    )
-    assert result.status != "verified"
-    assert any("legacy_unattested" in r or "chain_generated_unattested" in r for r in result.reasons)
+    result = None
+    set_evidence_manifest(TENANT_A, EV1, None, None)
+    try:
+        result = verify_service(
+            seeded, build_chain_for(seeded), [EV1],
+            db_engine=app_engine, keys_fixture=keys, store_fixture=store,
+            registry_fixture=trust_registry,
+        )
+        assert result.status != "verified"
+        assert any("legacy_unattested" in r or "chain_generated_unattested" in r for r in result.reasons)
+    finally:
+        set_evidence_manifest(
+            TENANT_A, EV1,
+            __import__("json").dumps(seeded["ev1"]["manifest"], sort_keys=True),
+            seeded["ev1"]["manifest_digest"],
+        )
 
 
 def test_manifest_signature_changed_after_anchor_invalid(seeded, app_engine, keys, store, trust_registry):
     """The DB envelope is re-signed (digest changes) after the anchor: the
     stored envelope no longer matches the anchored commitment."""
-    from app.db.session import tenant_transaction
     from app.security.signing import Signer, envelope_digest
-    from sqlalchemy import update
-    from app.db.models import EvidenceObject
 
     signer = Signer(keys)
     body = dict(seeded["ev1"]["manifest"]["body"])
     body["issued_at"] = "2026-10-25T23:59:59+00:00"  # changed content
     new_env = signer.sign(TENANT_A, "AML_SERVICE_MANIFEST_V1", body).to_dict()
-    Session = sessionmaker(bind=app_engine)
-    with Session() as session:
-        with tenant_transaction(session, TENANT_A):
-            session.execute(
-                update(EvidenceObject)
-                .where(EvidenceObject.evidence_id == EV1)
-                .values(
-                    manifest_envelope_json=__import__("json").dumps(new_env, sort_keys=True),
-                    manifest_digest=envelope_digest(new_env),
-                )
-            )
-    result = verify_service(
-        seeded, build_chain_for(seeded), [EV1],
-        db_engine=app_engine, keys_fixture=keys, store_fixture=store, registry_fixture=trust_registry,
+    set_evidence_manifest(
+        TENANT_A, EV1, __import__("json").dumps(new_env, sort_keys=True), envelope_digest(new_env)
     )
-    assert result.status == "invalid"
+    try:
+        result = verify_service(
+            seeded, build_chain_for(seeded), [EV1],
+            db_engine=app_engine, keys_fixture=keys, store_fixture=store,
+            registry_fixture=trust_registry,
+        )
+        assert result.status == "invalid"
+    finally:
+        set_evidence_manifest(
+            TENANT_A, EV1,
+            __import__("json").dumps(seeded["ev1"]["manifest"], sort_keys=True),
+            seeded["ev1"]["manifest_digest"],
+        )
 
 
 def test_retired_service_key_anchor_time_proven(seeded, app_engine, keys, store, trust_registry):
     """Evidence signed by a RETIRED key still verifies because the anchor
     block timestamp is a trusted time proven by the chain snapshot."""
-    # Re-sign ev2 with the retired key and re-anchor the matching digest.
-    from app.db.session import tenant_transaction
     from app.security.signing import Signer, envelope_digest
-    from sqlalchemy import update
-    from app.db.models import EvidenceObject
-
-    seed = (keys.base_dir / TENANT_A / "k_retired.seed").read_bytes()
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    retired_provider = type("P", (), {"get_signing_key": staticmethod(lambda i, k: Ed25519PrivateKey.from_private_bytes(seed))})()
+    seed = (keys.base_dir / TENANT_A / "k_retired.seed").read_bytes()
+    retired_provider = type(
+        "P", (), {"get_signing_key": staticmethod(lambda i, k: Ed25519PrivateKey.from_private_bytes(seed))}
+    )()
     signer = Signer(retired_provider)
     body = dict(seeded["ev2"]["manifest"]["body"])
     body["key_id"] = "k_retired"
     env = signer.sign(TENANT_A, "AML_SERVICE_MANIFEST_V1", body).to_dict()
     digest = envelope_digest(env)
-    Session = sessionmaker(bind=app_engine)
-    with Session() as session:
-        with tenant_transaction(session, TENANT_A):
-            session.execute(
-                update(EvidenceObject)
-                .where(EvidenceObject.evidence_id == EV2)
-                .values(
-                    manifest_envelope_json=__import__("json").dumps(env, sort_keys=True),
-                    manifest_digest=digest,
-                )
-            )
+    set_evidence_manifest(TENANT_A, EV2, __import__("json").dumps(env, sort_keys=True), digest)
 
     def tamper(chain, entries, digests):
         chain.manifest_digests[seeded["ev2"]["anchor_request_id"]] = "0x" + digest
         entries[1].manifest_digest = "0x" + digest
 
-    result = verify_service(
-        seeded, build_chain_for(seeded, tamper=tamper), [EV2],
-        db_engine=app_engine, keys_fixture=keys, store_fixture=store, registry_fixture=trust_registry,
-    )
-    assert result.status == "verified", result.reasons
+    try:
+        result = verify_service(
+            seeded, build_chain_for(seeded, tamper=tamper), [EV2],
+            db_engine=app_engine, keys_fixture=keys, store_fixture=store,
+            registry_fixture=trust_registry,
+        )
+        assert result.status == "verified", result.reasons
+    finally:
+        set_evidence_manifest(
+            TENANT_A, EV2,
+            __import__("json").dumps(seeded["ev2"]["manifest"], sort_keys=True),
+            seeded["ev2"]["manifest_digest"],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -672,8 +760,9 @@ def test_cross_tenant_404(http_env):
 
 
 def test_swapped_case(http_env):
-    """evidence ids from case A may not be verified through case B."""
-    res = http_env.post("/api/v3/evidence/verify", json={"case_id": CASE_B, "evidence_ids": [EV1]})
+    """evidence ids from case A may not be verified through ANOTHER case of
+    the SAME institution — evidence_ids cannot bypass case authorization."""
+    res = http_env.post("/api/v3/evidence/verify", json={"case_id": CASE_A2, "evidence_ids": [EV1]})
     assert res.status_code == 404
 
 

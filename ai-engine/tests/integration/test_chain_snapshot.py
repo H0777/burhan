@@ -10,20 +10,23 @@ Named cases (exact, from the task brief):
 
 Snapshot rules under test:
   - block_number = latest - depth + 1, then block_hash is PINNED;
-  - every eth_call/get_code/eth_getLogs read happens at that same block;
-  - block_hash is re-checked before the result is produced; a reorg to a
-    different hash => unavailable: snapshot_reorged;
+  - every eth_call/get_code/eth_getLogs/read_incident happens at that block;
+  - block_hash is re-checked before the result; a reorg to a different hash
+    => unavailable: snapshot_reorged;
   - a later append never disturbs a prior valid snapshot (re-verification
     with snapshot_id keeps the original pin while the chain head advances);
   - writer authorization is ordered by (blockNumber, transactionIndex,
     logIndex) BEFORE the append event — add-then-revoke in the same block
     keeps the evidence valid, revoke-then-add in the same block invalidates,
     and a grant that arrives only after the submit invalidates.
+
+Shared seeding lives in test_evidence_verification_v3.shared_state() (one
+process-wide migration + seed + key set).
 """
 
 import pytest
 
-from test_evidence_verification_v3 import (  # noqa: F401  (shared fixtures/helpers)
+from test_evidence_verification_v3 import (
     CASE_A,
     CONFIRMATION_DEPTH,
     DEPLOYED_AT_BLOCK,
@@ -34,47 +37,59 @@ from test_evidence_verification_v3 import (  # noqa: F401  (shared fixtures/help
     SNAPSHOT_HASH,
     WRITER,
     FakeChain,
-    app_engine,  # noqa: F401
     build_chain_for,
-    keys,  # noqa: F401
     make_binding,
-    make_fake_reader,
     make_identity,
-    seeded,  # noqa: F401
-    store,  # noqa: F401
-    trust_registry,  # noqa: F401
+    shared_state,
     verify_service,
 )
 
 
-def _verify(chain, evidence_ids=(EV1, EV2), snapshot_id=None, binding=None):
+@pytest.fixture(scope="module")
+def shared():
+    return shared_state()
+
+
+@pytest.fixture(scope="module")
+def seeded(shared):
+    return shared["seeded"]
+
+
+def _verify(chain, evidence_ids=(EV1, EV2), snapshot_id=None, binding=None, shared=None):
+    sh = shared or shared_state()
     return verify_service(
         None, chain, list(evidence_ids), snapshot_id=snapshot_id, binding=binding,
-        db_engine=app_engine, keys_fixture=keys, store_fixture=store,
-        registry_fixture=trust_registry,
+        db_engine=sh["app_engine"], keys_fixture=sh["keys"], store_fixture=sh["store"],
+        registry_fixture=sh["trust_registry"],
     )
 
 
-def test_all_reads_use_same_block(seeded):
+def test_all_reads_use_same_block(seeded, shared):
     chain = build_chain_for(seeded)
-    result = _verify(chain, (EV1,))
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "verified", result.reasons
     assert result.snapshot_id
     assert chain.journal, "reader must journal its reads"
-    blocks = {entry[1] for entry in chain.journal}
-    assert blocks == {SNAPSHOT_BLOCK}, f"all reads must use the pinned block {SNAPSHOT_BLOCK}, got {blocks}"
+    data_reads = {b for (m, b) in chain.journal if m != "eth_getBlockByNumber"}
+    assert data_reads == {SNAPSHOT_BLOCK}, (
+        f"every data read (eth_call/getCode/getLogs/read_incident) must use the "
+        f"pinned block {SNAPSHOT_BLOCK}, got {data_reads}"
+    )
+    block_reads = {b for (m, b) in chain.journal if m == "eth_getBlockByNumber"}
+    # only snapshot acquisition (latest) and the pin/recheck itself may touch other blocks
+    assert block_reads <= {SNAPSHOT_BLOCK, LATEST_BLOCK}
 
 
-def test_snapshot_block_is_latest_minus_depth_plus_one(seeded):
+def test_snapshot_block_is_latest_minus_depth_plus_one(seeded, shared):
     chain = build_chain_for(seeded)
-    result = _verify(chain, (EV1,))
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "verified", result.reasons
     assert SNAPSHOT_BLOCK == LATEST_BLOCK - CONFIRMATION_DEPTH + 1
 
 
-def test_append_preserves_snapshot(seeded):
+def test_append_preserves_snapshot(seeded, shared):
     chain = build_chain_for(seeded)
-    first = _verify(chain, (EV1, EV2))
+    first = _verify(chain, (EV1, EV2), shared=shared)
     assert first.status == "verified", first.reasons
 
     # A NEW evidence append lands on-chain (head advances)...
@@ -101,31 +116,31 @@ def test_append_preserves_snapshot(seeded):
 
     # ...re-verifying the ORIGINAL set with the pinned snapshot stays verified
     # and keeps the SAME pin (append never disturbs a prior valid snapshot).
-    again = _verify(chain, (EV1, EV2), snapshot_id=first.snapshot_id)
+    again = _verify(chain, (EV1, EV2), snapshot_id=first.snapshot_id, shared=shared)
     assert again.status == "verified", again.reasons
     assert again.snapshot_id == first.snapshot_id
 
 
-def test_reorg_marks_unavailable(seeded):
+def test_reorg_marks_unavailable(seeded, shared):
     chain = build_chain_for(seeded)
-    first = _verify(chain, (EV1,))
+    first = _verify(chain, (EV1,), shared=shared)
     assert first.status == "verified", first.reasons
 
     chain.reorged = True  # the pinned block now resolves to a DIFFERENT hash
-    again = _verify(chain, (EV1,), snapshot_id=first.snapshot_id)
+    again = _verify(chain, (EV1,), snapshot_id=first.snapshot_id, shared=shared)
     assert again.status == "unavailable"
     assert any("snapshot_reorged" in r for r in again.reasons)
 
 
-def test_current_head_not_snapshot_head(seeded):
+def test_current_head_not_snapshot_head(seeded, shared):
     """Verification is pinned to the snapshot block, not the current head."""
     chain = build_chain_for(seeded)
-    result = _verify(chain, (EV1,))
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "verified", result.reasons
     # the chain advanced far beyond the pinned snapshot before re-verification
     chain.latest = LATEST_BLOCK + 50
     chain.journal.clear()
-    again = _verify(chain, (EV1,), snapshot_id=result.snapshot_id)
+    again = _verify(chain, (EV1,), snapshot_id=result.snapshot_id, shared=shared)
     assert again.status == "verified", again.reasons
     assert max(entry[1] for entry in chain.journal) <= SNAPSHOT_BLOCK
 
@@ -134,7 +149,7 @@ def test_current_head_not_snapshot_head(seeded):
 # writer authorization is EVENT-ORDERED, not end-of-block state
 # ---------------------------------------------------------------------------
 
-def test_writer_add_then_revoke_same_block(seeded):
+def test_writer_add_then_revoke_same_block(seeded, shared):
     """Writer granted BEFORE the append and revoked AFTER it in the SAME
     block: the evidence stays valid."""
     chain = build_chain_for(seeded)
@@ -146,11 +161,11 @@ def test_writer_add_then_revoke_same_block(seeded):
         from app.services.anchor_reader import EventPosition
 
         e.event_position = EventPosition(block_number=submit_block, transaction_index=5, log_index=0)
-    result = _verify(chain, (EV1,))
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "verified", result.reasons
 
 
-def test_revoke_then_submit_same_block(seeded):
+def test_revoke_then_submit_same_block(seeded, shared):
     """Writer revoked BEFORE the append in the same block: invalid."""
     chain = build_chain_for(seeded)
     submit_block = SNAPSHOT_BLOCK
@@ -161,22 +176,37 @@ def test_revoke_then_submit_same_block(seeded):
         from app.services.anchor_reader import EventPosition
 
         e.event_position = EventPosition(block_number=submit_block, transaction_index=5, log_index=0)
-    result = _verify(chain, (EV1,))
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "invalid"
     assert any("writer" in r for r in result.reasons)
 
 
-def test_grant_after_submit(seeded):
+def test_grant_after_submit(seeded, shared):
     """A grant that only arrives AFTER the submit event does not authorize it."""
-    chain = build_chain_for(seeded)
-    chain.writer_events.clear()  # no authorization at deploy
-    for e in chain.entries[1]:
-        from app.services.anchor_reader import EventPosition
+    from app.schemas.evidence import EvidenceV2, hash_entry
+    from app.services.anchor_reader import EventPosition
+    from test_evidence_verification_v3 import CHAIN_ID, CONTRACT, OTHER_WRITER
 
-        e.event_position = EventPosition(block_number=SNAPSHOT_BLOCK, transaction_index=0, log_index=0)
+    chain = build_chain_for(seeded)
+    chain.writer_events.clear()  # no authorization history at all
+    prev = "0x" + "00" * 32
+    for idx, e in enumerate(chain.entries[1]):
+        e.submitted_by = OTHER_WRITER  # a NEW writer, never bootstrapped
+        e.event_position = EventPosition(block_number=SNAPSHOT_BLOCK, transaction_index=idx, log_index=idx)
+        # re-link + re-hash over the new writer so the chain itself stays
+        # internally valid: the decisive failure must be AUTHORIZATION
+        e.previous_entry_hash = prev
+        v2 = EvidenceV2(
+            schema_version=2, chain_id=CHAIN_ID, contract_address=CONTRACT, incident_id=1,
+            evidence_id=int(e.evidence_id), submitted_by=OTHER_WRITER, timestamp=e.timestamp,
+            evidence_type_hash=e.evidence_type_hash, description_hash=e.description_hash,
+            evidence_hash=e.evidence_hash, previous_entry_hash=prev,
+        )
+        e.entry_hash = hash_entry(v2)
+        prev = e.entry_hash
     # grant lands strictly after both appends
-    chain.grant(FakeChain.pos(SNAPSHOT_BLOCK + 1, 0, 0), WRITER, True)
-    result = _verify(chain, (EV1,))
+    chain.grant(FakeChain.pos(SNAPSHOT_BLOCK + 1, 0, 0), OTHER_WRITER, True)
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "invalid"
     assert any("writer" in r for r in result.reasons)
 
@@ -185,11 +215,11 @@ def test_grant_after_submit(seeded):
 # availability of the historical record itself
 # ---------------------------------------------------------------------------
 
-def test_historical_logs_unavailable(seeded):
+def test_historical_logs_unavailable(seeded, shared):
     """Without the writer-grant history the authorization cannot be proven:
     unavailable (never fabricated from the current allowlist)."""
     chain = build_chain_for(seeded)
     chain.missing_method = True
-    result = _verify(chain, (EV1,))
+    result = _verify(chain, (EV1,), shared=shared)
     assert result.status == "unavailable"
     assert any("historical" in r for r in result.reasons)
