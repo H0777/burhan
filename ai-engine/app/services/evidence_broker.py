@@ -80,8 +80,13 @@ class EvidenceBroker:
         key_provider=None,
     ):
         self.evidence_store = evidence_store
-        self.signer = signer
         self.key_provider = key_provider or evidence_store.key_provider
+        # Default the signer to the store's key provider when one is mounted;
+        # with no key material anywhere the broker stays fail-closed (no
+        # unsigned manifest is ever emitted).
+        self.signer = signer
+        if self.signer is None and self.key_provider is not None:
+            self.signer = Signer(self.key_provider)
 
     def submit_case_evidence(
         self,
