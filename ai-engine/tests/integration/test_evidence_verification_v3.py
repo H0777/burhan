@@ -449,12 +449,29 @@ def _rpc_logs(self, address, from_block, to_block):
 def _rpc_call(self, to, data, block_number):
     if self.rpc_down:
         raise ConnectionError("rpc down")
+    from app.services.evm_rpc_client import (
+        SIG_GET_INCIDENT_FOR_CASE,
+        SIG_GET_MANIFEST_DIGEST,
+        _keccak256_selector,
+    )
+
+    sel_case = _keccak256_selector(SIG_GET_INCIDENT_FOR_CASE)
+    sel_digest = _keccak256_selector(SIG_GET_MANIFEST_DIGEST)
     self.journal.append(("eth_call", block_number))
-    if data.startswith("0xincident_for_case:"):
-        return str(self.incident_for_case.get(data.split(":", 1)[1], 1))
-    if data.startswith("0xdigest:"):
-        return self.manifest_digests.get(data.split(":", 1)[1])
+    if data.startswith(sel_case):
+        ref = "0x" + data[10:].lstrip("0") or ZERO_REF
+        return hex(self.incident_for_case.get(ref, 1))
+    if data.startswith(sel_digest):
+        request_id = "0x" + data[10:]
+        digest = self.manifest_digests.get(request_id)
+        if digest is None:
+            return "0x" + "00" * 32
+        clean = digest[2:] if digest.startswith("0x") else digest
+        return "0x" + clean.rjust(64, "0")
     raise RuntimeError(f"unknown call {data[:40]}")
+
+
+ZERO_REF = "0x" + "00" * 32
 
 
 def _rpc_read_incident(self, binding, incident_id, snapshot):

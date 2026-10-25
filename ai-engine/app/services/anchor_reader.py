@@ -284,14 +284,22 @@ class AnchorReader:
     # ------------------------------------------------------------------
     def incident_for_case(self, binding: DeploymentBinding, case_reference_hash: str, snapshot: ChainSnapshot) -> str:
         """getIncidentByCaseReference at the snapshot block; decimal string."""
+        from app.services.evm_rpc_client import SIG_GET_INCIDENT_FOR_CASE, _keccak256_selector
+
+        selector = _keccak256_selector(SIG_GET_INCIDENT_FOR_CASE)
+        clean = case_reference_hash[2:] if case_reference_hash.startswith("0x") else case_reference_hash
         try:
             raw = self.rpc.raw_call(
                 binding.forensic_trail_address(),
-                f"0xincident_for_case:{case_reference_hash}",
+                selector + clean.rjust(64, "0"),
                 snapshot.block_number,
             )
         except Exception as exc:
             raise RpcUnavailableError(f"case-reference read failed: {type(exc).__name__}: {exc}") from exc
+        if raw is None:
+            return "0"
+        if isinstance(raw, str):
+            return str(int(raw, 16))
         return str(int(raw))
 
     def read_incident(self, binding: DeploymentBinding, incident_id: int, snapshot: ChainSnapshot) -> AnchoredIncident:
@@ -314,14 +322,24 @@ class AnchorReader:
     def get_manifest_digest(self, binding: DeploymentBinding, request_id: str, snapshot: ChainSnapshot) -> Optional[str]:
         """getManifestDigest(requestId) at the pinned block (None = no
         commitment anchored for this requestId)."""
+        from app.services.evm_rpc_client import SIG_GET_MANIFEST_DIGEST, _keccak256_selector
+
+        selector = _keccak256_selector(SIG_GET_MANIFEST_DIGEST)
+        clean = request_id[2:] if request_id.startswith("0x") else request_id
         try:
             raw = self.rpc.raw_call(
                 binding.forensic_trail_address(),
-                f"0xdigest:{request_id}",
+                selector + clean.rjust(64, "0"),
                 snapshot.block_number,
             )
         except Exception as exc:
             raise RpcUnavailableError(f"manifest digest read failed: {type(exc).__name__}: {exc}") from exc
-        if raw is None or raw == ZERO_BYTES32:
+        if raw is None:
             return None
+        if isinstance(raw, str):
+            hexed = raw[2:] if raw.startswith("0x") else raw
+            digest = "0x" + hexed[-64:].rjust(64, "0")
+            if digest == ZERO_BYTES32 or int(digest, 16) == 0:
+                return None
+            return digest
         return str(raw)

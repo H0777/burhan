@@ -1,6 +1,12 @@
 """
 Live EVM RPC Client for Evidence Verification
 Interacts with deployed ForensicTrail contract via JSON-RPC.
+
+R07 additions (spec §5): block-tagged reads for the AnchorReader —
+eth_call/eth_getCode/eth_getLogs all execute at an EXPLICIT block number
+(the pinned snapshot), decoded ABI results for the R04 attested contract
+surface, and parsed EvidenceWriterUpdated / EvidenceManifestAnchored /
+EvidenceSubmitted logs replayed from the binding's deployed_at_block.
 """
 
 import json
@@ -15,6 +21,32 @@ def _keccak256_selector(sig: str) -> str:
     k = keccak.new(digest_bits=256)
     k.update(sig.encode("utf-8"))
     return "0x" + k.hexdigest()[:8]
+
+
+def _topic(sig: str) -> str:
+    k = keccak.new(digest_bits=256)
+    k.update(sig.encode("utf-8"))
+    return "0x" + k.hexdigest()
+
+
+TOPIC_EVIDENCE_WRITER_UPDATED = _topic("EvidenceWriterUpdated(address,bool)")
+TOPIC_INCIDENT_CREATED = _topic("IncidentCreated(uint256,bytes32,bytes32,address,uint256)")
+TOPIC_EVIDENCE_SUBMITTED = _topic(
+    "EvidenceSubmitted(uint256,uint256,address,bytes32,bytes32,uint256)"
+)
+TOPIC_EVIDENCE_MANIFEST_ANCHORED = _topic(
+    "EvidenceManifestAnchored(bytes32,uint256,bytes32)"
+)
+
+SIG_GET_INCIDENT_FOR_CASE = "getIncidentByCaseReference(bytes32)"
+SIG_GET_MANIFEST_DIGEST = "getManifestDigest(bytes32)"
+SIG_GET_INCIDENT = "getIncident(uint256)"
+SIG_GET_EVIDENCE_CHAIN = "getEvidenceChain(uint256)"
+
+EVIDENCE_TUPLE = (
+    "uint256", "uint256", "address", "uint256",
+    "bytes32", "bytes32", "bytes32", "bytes32", "bytes32",
+)
 
 
 class EvmRpcClient:
@@ -50,12 +82,208 @@ class EvmRpcClient:
             raise ConnectionError(f"RPC connection refused at {self.rpc_url}: {str(exc)}") from exc
 
     def get_block(self, block_tag: str = "latest") -> Dict[str, Any]:
+        if isinstance(block_tag, int):
+            block_tag = hex(block_tag)
         result = self._rpc_call("eth_getBlockByNumber", [block_tag, False])
         if not result:
             raise ConnectionError(f"Block not found for tag {block_tag}")
         block_num = int(result.get("number", "0x0"), 16)
         block_hash = result.get("hash", "")
         return {"number": block_num, "hash": block_hash}
+
+    # ------------------------------------------------------------------
+    # R07: block-tagged reads for the AnchorReader (spec §5)
+    # ------------------------------------------------------------------
+    def get_code(self, address: str, block_number: int) -> str:
+        return self._rpc_call(
+            "eth_getCode", [address, hex(block_number)]
+        )
+
+    def eth_get_logs(
+        self,
+        address: str,
+        from_block: int,
+        to_block: int,
+        topics: Optional[List[Optional[str]]] = None,
+    ) -> List[Dict[str, Any]]:
+        filter_obj: Dict[str, Any] = {
+            "fromBlock": hex(from_block),
+            "toBlock": hex(to_block),
+            "address": address,
+        }
+        if topics:
+            filter_obj["topics"] = topics
+        result = self._rpc_call("eth_getLogs", [filter_obj])
+        return result or []
+
+    def get_logs(self, address: str, from_block: int, to_block: int) -> List[Dict[str, Any]]:
+        """Parsed EvidenceWriterUpdated history (the AnchorReader replay input).
+        Ordered by (blockNumber, transactionIndex, logIndex) by the reader."""
+        logs = self.eth_get_logs(
+            address, from_block, to_block, topics=[TOPIC_EVIDENCE_WRITER_UPDATED]
+        )
+        parsed = []
+        for log in logs:
+            topics = log.get("topics", [])
+            if len(topics) < 2:
+                continue
+            writer = "0x" + topics[1][-40:]
+            data = log.get("data", "0x")
+            raw = data[2:] if data.startswith("0x") else data
+            authorized = bool(int(raw[:64], 16)) if len(raw) >= 64 else False
+            parsed.append(
+                {
+                    "blockNumber": int(log["blockNumber"], 16),
+                    "transactionIndex": int(log["transactionIndex"], 16),
+                    "logIndex": int(log["logIndex"], 16),
+                    "event": "EvidenceWriterUpdated",
+                    "writer": writer,
+                    "authorized": authorized,
+                }
+            )
+        return parsed
+
+    def raw_call(self, to: str, data: str, block_number: int) -> Any:
+        """eth_call at an EXPLICIT block number (the pinned snapshot)."""
+        return self._rpc_call(
+            "eth_call", [{"to": to, "data": data}, hex(block_number)]
+        )
+
+    def _call_bytes32(self, to: str, sig: str, arg_bytes32: str, block_number: int) -> str:
+        selector = _keccak256_selector(sig)
+        clean = arg_bytes32[2:] if arg_bytes32.startswith("0x") else arg_bytes32
+        call_data = selector + clean.rjust(64, "0")
+        result = self.raw_call(to, call_data, block_number)
+        if not result or result == "0x":
+            raise RuntimeError(f"empty eth_call result for {sig}")
+        return result
+
+    def get_incident_for_case(self, address: str, case_reference_hash: str, block_number: int) -> int:
+        result = self._call_bytes32(address, SIG_GET_INCIDENT_FOR_CASE, case_reference_hash, block_number)
+        return int(result, 16)
+
+    def get_manifest_digest(self, address: str, request_id: str, block_number: int) -> Optional[str]:
+        result = self._call_bytes32(address, SIG_GET_MANIFEST_DIGEST, request_id, block_number)
+        clean = result[2:] if result.startswith("0x") else result
+        digest = "0x" + clean[-64:].rjust(64, "0")
+        if int(digest, 16) == 0:
+            return None
+        return digest
+
+    def read_incident(self, binding, incident_id: int, snapshot):
+        """Full AnchoredIncident at the pinned block: real entries decoded
+        from getEvidenceChain, with requestIds/manifestDigests/event positions
+        replayed from the anchored EvidenceManifestAnchored /
+        EvidenceSubmitted logs. No object placeholders."""
+        from app.services.anchor_reader import AnchoredEntry, AnchoredIncident, EventPosition
+
+        address = binding.forensic_trail_address()
+        bn = snapshot.block_number
+
+        incident_raw = self.raw_call(
+            address,
+            _keccak256_selector(SIG_GET_INCIDENT) + hex(incident_id)[2:].rjust(64, "0"),
+            bn,
+        )
+        if not incident_raw or incident_raw == "0x":
+            raise RuntimeError(f"incident {incident_id} not readable at block {bn}")
+        inc = eth_abi.decode(
+            ["uint256", "bytes32", "bytes32", "address", "uint256", "bool", "uint256"],
+            bytes.fromhex(incident_raw[2:]),
+        )
+        evidence_count = int(inc[6])
+
+        chain_raw = self.raw_call(
+            address,
+            _keccak256_selector(SIG_GET_EVIDENCE_CHAIN) + hex(incident_id)[2:].rjust(64, "0"),
+            bn,
+        )
+        if not chain_raw or chain_raw == "0x":
+            entries = []
+        else:
+            decoded = eth_abi.decode(
+                [f"({EVIDENCE_TUPLE[0]},{EVIDENCE_TUPLE[1]},{EVIDENCE_TUPLE[2]},{EVIDENCE_TUPLE[3]},"
+                 f"{EVIDENCE_TUPLE[4]},{EVIDENCE_TUPLE[5]},{EVIDENCE_TUPLE[6]},{EVIDENCE_TUPLE[7]},"
+                 f"{EVIDENCE_TUPLE[8]})[]"],
+                bytes.fromhex(chain_raw[2:]),
+            )
+            entries = list(decoded[0]) if decoded else []
+
+        # anchored manifest commitments + append positions (log replay)
+        anchored: Dict[int, Dict[str, Any]] = {}
+        for log in self.eth_get_logs(
+            address,
+            max(0, binding.deployed_at_block),
+            bn,
+            topics=[TOPIC_EVIDENCE_MANIFEST_ANCHORED],
+        ):
+            topics = log.get("topics", [])
+            if len(topics) < 3:
+                continue
+            request_id = "0x" + topics[1][-64:]
+            evidence_id = int(topics[2], 16)
+            data = log.get("data", "0x")
+            raw = data[2:] if data.startswith("0x") else data
+            digest = "0x" + raw[-64:].rjust(64, "0")
+            anchored[evidence_id] = {
+                "request_id": request_id,
+                "manifest_digest": digest,
+                "position": EventPosition(
+                    int(log["blockNumber"], 16),
+                    int(log["transactionIndex"], 16),
+                    int(log["logIndex"], 16),
+                ),
+            }
+
+        submit_positions: Dict[int, EventPosition] = {}
+        for log in self.eth_get_logs(
+            address,
+            max(0, binding.deployed_at_block),
+            bn,
+            topics=[TOPIC_EVIDENCE_SUBMITTED],
+        ):
+            topics = log.get("topics", [])
+            if len(topics) < 3:
+                continue
+            if int(topics[1], 16) != int(incident_id):
+                continue
+            evidence_id = int(topics[2], 16)
+            submit_positions[evidence_id] = EventPosition(
+                int(log["blockNumber"], 16),
+                int(log["transactionIndex"], 16),
+                int(log["logIndex"], 16),
+            )
+
+        real_entries: List[AnchoredEntry] = []
+        for e in entries:
+            evidence_id = int(e[0])
+            commitment = anchored.get(evidence_id)
+            real_entries.append(
+                AnchoredEntry(
+                    evidence_id=str(evidence_id),
+                    incident_id=str(int(e[1])),
+                    submitted_by=e[2],
+                    timestamp=int(e[3]),
+                    evidence_type_hash="0x" + e[4].hex(),
+                    description_hash="0x" + e[5].hex(),
+                    evidence_hash="0x" + e[6].hex(),
+                    previous_entry_hash="0x" + e[7].hex(),
+                    entry_hash="0x" + e[8].hex(),
+                    request_id=commitment["request_id"] if commitment else None,
+                    manifest_digest=commitment["manifest_digest"] if commitment else None,
+                    event_position=(
+                        commitment["position"] if commitment else submit_positions.get(evidence_id)
+                    ),
+                )
+            )
+
+        return AnchoredIncident(
+            incident_id=incident_id,
+            entries=real_entries,
+            evidence_count=evidence_count,
+            head_entry_hash=real_entries[-1].entry_hash if real_entries else "0x" + "00" * 32,
+            is_open=bool(inc[5]),
+        )
 
     def is_evidence_writer(self, address: str) -> bool:
         if not self.contract_address:
