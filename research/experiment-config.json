@@ -1,0 +1,5 @@
+{
+  "schema_version": "experiment-config/1",
+  "protocol": "protocol.json",
+  "description": "Thin runner shim for the experiment CLI (--config research/experiment-config.json). All thresholds, acceptance gates, split policy and model hyperparameters are resolved from research/protocol.json — the single configuration source. This shim may never carry thresholds; the runner rejects any non-shim key."
+}

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ExperimentManifest",
   "type": "object",
-  "description": "Validation schema for Track A empirical experiment run manifests (R17 regime: strict temporal/participant-disjoint splits; outcome computed from acceptance gates or INSUFFICIENT_DATA).",
+  "description": "Validation schema for Track A empirical experiment run manifests (R17 regime: strict temporal/participant-disjoint splits; R18 regime: outcome computed by the fail-able evaluation gate as PASSED/FAILED or INSUFFICIENT_DATA, with the generated claim, gate decision and evaluation seal recorded — never a constant SUPPORTED string).",
   "required": [
     "experiment_id",
     "protocol_version",
@@ -43,11 +43,69 @@
       "pattern": "^0x[0-9a-fA-F]{64}$"
     },
     "config_path": { "type": "string" },
+    "protocol_path": {
+      "type": "string",
+      "description": "Name of the resolved protocol document when the config was loaded through the experiment-config shim"
+    },
     "seed": { "type": "integer" },
     "policy_version": { "type": "string" },
     "engine_version": { "type": "string" },
     "outcome": {
-      "enum": ["SUPPORTED", "FAILED", "INSUFFICIENT_DATA"]
+      "enum": ["PASSED", "FAILED", "INSUFFICIENT_DATA"],
+      "description": "R18 research status computed by evaluate_gate (PASSED replaces the retired SUPPORTED constant)"
+    },
+    "model_id": {
+      "type": "string",
+      "description": "Identifier of the evaluated model configuration (required for PASSED/FAILED runs)"
+    },
+    "model_artifact_path": {
+      "type": "string",
+      "description": "Repo-relative path where the runner wrote the evaluated model artifact (required for PASSED/FAILED runs)"
+    },
+    "gate_decision": {
+      "type": "object",
+      "description": "The R18 gate decision as produced (required for PASSED/FAILED runs)",
+      "required": ["research_status", "activation_allowed", "reasons", "claim"],
+      "properties": {
+        "research_status": { "enum": ["PASSED", "FAILED", "INSUFFICIENT_DATA"] },
+        "activation_allowed": { "type": "boolean" },
+        "reasons": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "claim": {
+          "type": "string",
+          "description": "Claim text GENERATED from the decision — never a constant SUPPORTED string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evaluation_seal": {
+      "type": "object",
+      "description": "Seal over the exact evaluated labels/predictions, the frozen config, split and model artifact, and the evaluation time (required for PASSED/FAILED runs); reopening with changed thresholds requires a NEW run",
+      "required": [
+        "schema_version",
+        "run_id",
+        "labels_sha256",
+        "predictions_sha256",
+        "config_hash",
+        "split_hash",
+        "model_hash",
+        "evaluated_at",
+        "seal_hash"
+      ],
+      "properties": {
+        "schema_version": { "type": "string" },
+        "run_id": { "type": "string" },
+        "labels_sha256": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "predictions_sha256": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "config_hash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "split_hash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "model_hash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+        "evaluated_at": { "type": "string" },
+        "seal_hash": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" }
+      },
+      "additionalProperties": false
     },
     "environment": {
       "type": "object",
@@ -151,7 +209,14 @@
     "not": { "required": ["metrics", "model_hash"] }
   },
   "else": {
-    "required": ["metrics", "model_hash"]
+    "required": [
+      "metrics",
+      "model_hash",
+      "model_id",
+      "model_artifact_path",
+      "gate_decision",
+      "evaluation_seal"
+    ]
   },
   "additionalProperties": false
 }

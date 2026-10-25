@@ -38,7 +38,7 @@
       "rules_min_score": 50.0,
       "hybrid_min_score": 0.45
     },
-    "hybrid_activation_requires": "SUPPORTED verdict computed on the strict temporal+participant-disjoint test split under acceptance_gates",
+    "hybrid_activation_requires": "PASSED research status computed by evaluate_gate on the strict temporal+participant-disjoint test split under acceptance_gates, AND recall >= rules-only baseline AND FPR <= baseline with a strict gain in at least one of the two (spec §9); activation binding additionally requires the evaluation seal and a model-artifact hash match (ModelRegistry.activate)",
     "on_insufficient_data": "REMAIN_RULES_ONLY",
     "on_failed_gates": "REMAIN_RULES_ONLY",
     "post_test_threshold_tuning_allowed": false

@@ -153,6 +153,15 @@ def test_run_pipeline_reports_insufficient_data_honestly():
 
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
+        # R17/R18 deferred-minor fix: the acceptance path writes the model
+        # artifact at ai-engine/models/pretrained/fraud_model.joblib
+        # (MODEL_ARTIFACT_RELPATH), NOT into the run directory — so the
+        # honest-insufficient assertion targets that real path: the run must
+        # neither create nor touch it.
+        artifact = root_dir / run_experiments.MODEL_ARTIFACT_RELPATH
+        artifact_mtime_before = (artifact.stat().st_mtime_ns
+                                 if artifact.exists() else None)
+
         result = suite(str(root_dir / "research" / "protocol.json"),
                        max_records=200, results_dir=tmp)
         assert result["outcome"] == "INSUFFICIENT_DATA"
@@ -165,3 +174,7 @@ def test_run_pipeline_reports_insufficient_data_honestly():
         readme = (result["run_dir"] / "README.md").read_text(encoding="utf-8")
         assert "SUPPORTED" not in readme
         assert not (result["run_dir"] / "model.joblib").exists()
+        if artifact_mtime_before is None:
+            assert not artifact.exists()
+        else:
+            assert artifact.stat().st_mtime_ns == artifact_mtime_before

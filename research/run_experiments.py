@@ -49,7 +49,6 @@ for p in [ROOT_DIR, AI_ENGINE_DIR]:
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from research.evaluate import compute_metrics
 from app.models.registry import compute_file_sha256, FEATURE_SCHEMA_V2
 
 ENGINE_VERSION = "2.0.0"
@@ -57,6 +56,10 @@ LABEL_COLUMN = "is_sar_reportable"
 SPLIT_MANIFEST_SCHEMA_VERSION = "split-manifest/1"
 DROP_REASON_TRAIN_PARTICIPANT_FUTURE_RECORD = "TRAIN_PARTICIPANT_FUTURE_RECORD"
 DROP_REASON_CROSSES_VALIDATION_TEST_BOUNDARY = "PARTICIPANT_CROSSES_VALIDATION_TEST_BOUNDARY"
+# The acceptance path writes the evaluated artifact here (repo-relative);
+# activation additionally requires that EXACT artifact (by hash) to be
+# deployed at the server's load path before ModelRegistry.activate binds it.
+MODEL_ARTIFACT_RELPATH = "ai-engine/models/pretrained/fraud_model.joblib"
 
 
 class SplitValidationError(RuntimeError):
@@ -1304,22 +1307,40 @@ def _write_json(path: Path, doc: Dict[str, Any]) -> None:
         json.dump(doc, f, indent=2)
 
 
+def _decision_to_json(decision: GateDecision) -> Dict[str, Any]:
+    return {
+        "research_status": decision.research_status,
+        "activation_allowed": bool(decision.activation_allowed),
+        "reasons": list(decision.reasons),
+        "claim": decision.claim,
+    }
+
+
+def _insufficient_gate_decision(reasons: List[str]) -> Dict[str, Any]:
+    decision = GateDecision(RESEARCH_STATUS_INSUFFICIENT_DATA, False,
+                            list(reasons))
+    claim = generate_claim_text(decision, None, None, None)
+    return _decision_to_json(
+        GateDecision(decision.research_status, False, list(reasons),
+                     claim=claim))
+
+
 def run_experiment_suite(config_path: str,
                          seed: Optional[int] = None,
                          max_records: Optional[int] = None,
                          results_dir: Optional[str] = None) -> Dict[str, Any]:
-    """Executes the empirical pipeline under the R17 strict-split regime.
+    """Executes the empirical pipeline under the R17 strict-split regime and
+    the R18 fail-able activation gate.
 
     All bounds (cutoffs, minimum split size, class requirement, thresholds,
-    gates) come from research/protocol.json — the single configuration source.
+    gates) come from research/protocol.json — the single configuration source
+    (a thin experiment-config shim may point at it, never add thresholds).
     Cutoffs are fixed in config before training and are never derived from
-    labels or from result quality.
+    labels or from result quality. Config errors raise ProtocolConfigError
+    and crash loudly — they are never recorded as INSUFFICIENT_DATA.
     """
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-
-    config_bytes = json.dumps(config, sort_keys=True).encode("utf-8")
-    config_hash = _sha256_hex(config_bytes)
+    config, config_provenance = load_experiment_config(config_path)
+    config_hash = config_provenance["config_hash"]
 
     splits_cfg = config["splits"]
     train_end = _parse_utc(splits_cfg["train_end"], "splits.train_end")
@@ -1356,7 +1377,8 @@ def run_experiment_suite(config_path: str,
         "dataset_hash": dataset_hash,
         "code_revision": code_revision,
         "config_hash": config_hash,
-        "config_path": str(Path(config_path).name),
+        "config_path": config_provenance["config_path"],
+        "protocol_path": config_provenance["protocol_path"],
         "seed": seed,
         "policy_version": policy_version,
         "engine_version": ENGINE_VERSION,
@@ -1386,6 +1408,9 @@ def run_experiment_suite(config_path: str,
                      for name in ("train", "validation", "test")}
             drop_summary = rejected.drop_summary
         rejected_hash = rejected.manifest_hash if rejected is not None else "0x" + "0" * 64
+        insufficient_decision = _insufficient_gate_decision(
+            [f"strict temporal/participant-disjoint partitioning left no "
+             f"admissible evaluation splits: {exc}"])
         run_manifest = dict(base_manifest)
         run_manifest.update({
             "split_hash": rejected_hash,
@@ -1396,6 +1421,7 @@ def run_experiment_suite(config_path: str,
                 "drop_summary": drop_summary,
             },
             "outcome": "INSUFFICIENT_DATA",
+            "gate_decision": insufficient_decision,
             "insufficient_data": {
                 "reason": str(exc),
                 "split_sizes": sizes,
@@ -1435,7 +1461,8 @@ def run_experiment_suite(config_path: str,
     # 1. Rules-Only Baseline
     rules_preds, rules_scores, rules_lats = evaluate_rules_baseline(
         test_set, min_score=rules_min_score)
-    rules_metrics = compute_metrics(y_test, rules_preds, rules_scores, rules_lats)
+    rules_metrics = compute_eval_metrics(y_test, rules_preds, rules_scores,
+                                         rules_lats)
 
     # 2. ML-Only (Isolation Forest) — hyperparameters from protocol.json
     ml_cfg = next(m for m in config["models"] if m.get("name") == "ml_isolation_forest")
@@ -1455,7 +1482,7 @@ def run_experiment_suite(config_path: str,
         ml_scores.append(round(anomaly_score, 4))
         ml_lats.append(lat_ms)
 
-    ml_metrics = compute_metrics(y_test, ml_preds, ml_scores, ml_lats)
+    ml_metrics = compute_eval_metrics(y_test, ml_preds, ml_scores, ml_lats)
 
     # 3. Hybrid Ensemble — weights/threshold frozen in config BEFORE test
     hybrid_cfg = next(m for m in config["models"] if m.get("name") == "hybrid_ensemble")
@@ -1473,7 +1500,8 @@ def run_experiment_suite(config_path: str,
         hybrid_scores.append(round(combined_score, 4))
         hybrid_lats.append(r_lat + m_lat)
 
-    hybrid_metrics = compute_metrics(y_test, hybrid_preds, hybrid_scores, hybrid_lats)
+    hybrid_metrics = compute_eval_metrics(y_test, hybrid_preds, hybrid_scores,
+                                          hybrid_lats)
 
     # Model artifact + meta (hash recorded; meta carries ACTUAL versions)
     model_dir = ROOT_DIR / "ai-engine" / "models" / "pretrained"
@@ -1497,15 +1525,23 @@ def run_experiment_suite(config_path: str,
     with open(str(model_path) + ".meta.json", "w", encoding="utf-8") as f:
         json.dump(model_meta, f, indent=2)
 
-    # Verdict computed from the acceptance gates — never hardcoded.
-    gates = config.get("acceptance_gates", {})
-    supported = (
-        hybrid_metrics["recall"] >= gates.get("min_recall", 0.85)
-        and hybrid_metrics["fpr_per_1000"] <= gates.get("max_fpr_per_1000", 50.0)
-        and hybrid_metrics["pr_auc"] >= gates.get("min_pr_auc", 0.80)
-        and hybrid_metrics["latency_p95_ms"] <= gates.get("max_latency_p95_ms", 25.0)
-    )
-    outcome = "SUPPORTED" if supported else "FAILED"
+    # Verdict computed by the R18 fail-able gate — never hardcoded, and the
+    # claim text is GENERATED from the decision (never a constant SUPPORTED).
+    policy = EvaluationPolicy.from_protocol(config)
+    candidate_metrics = EvaluationMetrics.from_metrics_dict(hybrid_metrics)
+    baseline_metrics_obj = EvaluationMetrics.from_metrics_dict(rules_metrics)
+    gate_decision = evaluate_gate(candidate_metrics, baseline_metrics_obj,
+                                  policy)
+    outcome = gate_decision.research_status
+
+    # Evaluation seal: binds the exact evaluated labels/predictions, the
+    # frozen config, split and model artifact, and the evaluation time. Any
+    # later threshold retune breaks the seal; reopening then requires a NEW
+    # run — never an independent re-test on the already-seen test data.
+    evaluation_seal = build_evaluation_seal(
+        run_id=run_id, labels=y_test, predictions=hybrid_preds,
+        config_hash=config_hash, split_hash=split_manifest.manifest_hash,
+        model_hash=model_hash)
 
     run_manifest = dict(base_manifest)
     run_manifest.update({
@@ -1518,6 +1554,10 @@ def run_experiment_suite(config_path: str,
             "drop_summary": split_manifest.drop_summary,
         },
         "outcome": outcome,
+        "model_id": "hybrid_ensemble",
+        "model_artifact_path": MODEL_ARTIFACT_RELPATH,
+        "gate_decision": _decision_to_json(gate_decision),
+        "evaluation_seal": evaluation_seal,
         "metrics": {
             "precision": hybrid_metrics["precision"],
             "recall": hybrid_metrics["recall"],
@@ -1531,14 +1571,16 @@ def run_experiment_suite(config_path: str,
         "model_hash": model_hash,
     })
     _write_json(run_dir / "run-manifest.json", run_manifest)
-    _write_accepted_readme(run_dir / "README.md", run_manifest, rules_metrics,
-                           ml_metrics, hybrid_metrics, gates)
+    _write_evaluated_readme(run_dir / "README.md", run_manifest,
+                            gate_decision, evaluation_seal)
 
     print(f"\n[OUTCOME] {outcome}")
-    print(f"    Hybrid Metrics: Precision={hybrid_metrics['precision']}, "
-          f"Recall={hybrid_metrics['recall']}, F1={hybrid_metrics['f1_score']}")
+    print(f"    {gate_decision.claim}")
+    for reason in gate_decision.reasons:
+        print(f"    - {reason}")
     print(f"    Run artifacts -> {run_dir}")
-    return {"outcome": outcome, "run_dir": run_dir, "run_manifest": run_manifest}
+    return {"outcome": outcome, "run_dir": run_dir,
+            "run_manifest": run_manifest, "gate_decision": gate_decision}
 
 
 def _write_insufficient_readme(path: Path, run_manifest: Dict[str, Any]) -> None:
@@ -1591,58 +1633,107 @@ def _write_insufficient_readme(path: Path, run_manifest: Dict[str, Any]) -> None
         f.write("\n".join(lines) + "\n")
 
 
-def _write_accepted_readme(path: Path, run_manifest: Dict[str, Any],
-                           rules_metrics: Dict[str, Any],
-                           ml_metrics: Dict[str, Any],
-                           hybrid_metrics: Dict[str, Any],
-                           gates: Dict[str, Any]) -> None:
+def _metrics_row(name: str, m: Dict[str, Any], bold: bool = False) -> str:
+    ci_p = (m.get("ci95") or {}).get("precision", [0.0, 1.0])
+    ci_r = (m.get("ci95") or {}).get("recall", [0.0, 1.0])
+    ci_f = (m.get("ci95") or {}).get("fpr", [0.0, 1.0])
+    b = "**" if bold else ""
+    return (
+        f"| {b}{name}{b} | "
+        f"{m['precision']:.4f} [{ci_p[0]:.3f}, {ci_p[1]:.3f}] | "
+        f"{m['recall']:.4f} [{ci_r[0]:.3f}, {ci_r[1]:.3f}] | "
+        f"{m['f1_score']:.4f} | {m['pr_auc']:.4f} (AP) | "
+        f"{format_fpr(m.get('fpr_ratio'))} "
+        f"[{ci_f[0] * 1000:.2f}, {ci_f[1] * 1000:.2f}]/1000 | "
+        f"{m['latency_p95_ms']:.2f} | "
+        f"{m.get('n_samples', 0)} (pos {m.get('n_positives', 0)}, "
+        f"neg {m.get('n_negatives', 0)}) |")
+
+
+def _write_evaluated_readme(path: Path,
+                            run_manifest: Dict[str, Any],
+                            gate_decision: GateDecision,
+                            evaluation_seal: Dict[str, Any]) -> None:
     verdict = run_manifest["outcome"]
+    d = _decision_to_json(gate_decision)
+    metrics_by_model = run_manifest.get("metrics_by_model", {})
     lines = [
-        "# Empirical Evaluation Run (strict splits)",
+        "# Empirical Evaluation Run (strict splits, R18 gate)",
         "",
         f"**Protocol:** `research/protocol.json` "
         f"(protocol_version {run_manifest.get('protocol_version')}) | "
         f"**Run:** `{run_manifest['experiment_id']}` | **Outcome:** {verdict}",
+        f"**Config:** `{run_manifest.get('config_path')}` -> "
+        f"`{run_manifest.get('protocol_path')}` | "
+        f"**Config hash:** `{run_manifest['config_hash']}`",
         f"**Dataset hash (synthetic):** `{run_manifest['dataset_hash']}`",
         f"**Split manifest hash:** `{run_manifest['split_hash']}`",
-        f"**Model hash:** `{run_manifest['model_hash']}`",
+        f"**Model hash:** `{run_manifest['model_hash']}` "
+        f"(`{run_manifest.get('model_artifact_path')}`)",
         "",
         "## Comparative Performance Matrix (Holdout Test Partition, "
         "temporal + participant-disjoint)",
         "",
-        "| Model Configuration | Precision | Recall | F1-Score | PR-AUC | "
-        "FPR per 1,000 | Latency p95 (ms) |",
-        "|---|---|---|---|---|---|---|",
-        f"| **Rules-Only Baseline** | {rules_metrics['precision']:.4f} | "
-        f"{rules_metrics['recall']:.4f} | {rules_metrics['f1_score']:.4f} | "
-        f"{rules_metrics['pr_auc']:.4f} | {rules_metrics['fpr_per_1000']:.2f} | "
-        f"{rules_metrics['latency_p95_ms']:.2f} |",
-        f"| **ML-Only (Isolation Forest)** | {ml_metrics['precision']:.4f} | "
-        f"{ml_metrics['recall']:.4f} | {ml_metrics['f1_score']:.4f} | "
-        f"{ml_metrics['pr_auc']:.4f} | {ml_metrics['fpr_per_1000']:.2f} | "
-        f"{ml_metrics['latency_p95_ms']:.2f} |",
-        f"| **Hybrid Ensemble (Rules + ML)** | **{hybrid_metrics['precision']:.4f}** | "
-        f"**{hybrid_metrics['recall']:.4f}** | **{hybrid_metrics['f1_score']:.4f}** | "
-        f"**{hybrid_metrics['pr_auc']:.4f}** | **{hybrid_metrics['fpr_per_1000']:.2f}** | "
-        f"**{hybrid_metrics['latency_p95_ms']:.2f}** |",
+        "Precision/Recall/FPR columns show the point estimate with the 95% "
+        "Wilson confidence interval; PR-AUC is average precision (AP), "
+        "computed and reported under that name; FPR is shown per 1,000 "
+        "benign transfers and as a percentage — the same quantity in two "
+        "units.",
         "",
-        "## Hypothesis Verification (computed from gates, not asserted)",
+        "| Configuration | Precision [95% CI] | Recall [95% CI] | F1 | "
+        "PR-AUC (AP) | FPR per 1,000 [95% CI] | p95 (ms) | Sample n |",
+        "|---|---|---|---|---|---|---|---|",
+        _metrics_row("Rules-Only Baseline",
+                     metrics_by_model.get("rules_only", {})),
+        _metrics_row("ML-Only (Isolation Forest)",
+                     metrics_by_model.get("ml_isolation_forest", {})),
+        _metrics_row("Hybrid Ensemble (Rules + ML)",
+                     metrics_by_model.get("hybrid_ensemble", {}), bold=True),
         "",
-        f"- Recall = {hybrid_metrics['recall'] * 100:.1f}% "
-        f"(gate >= {gates.get('min_recall', 0.85) * 100:.1f}%), "
-        f"FPR = {hybrid_metrics['fpr_per_1000']} per 1,000 "
-        f"(gate <= {gates.get('max_fpr_per_1000', 50.0)}), "
-        f"PR-AUC = {hybrid_metrics['pr_auc']} "
-        f"(gate >= {gates.get('min_pr_auc', 0.80)}), "
-        f"p95 latency = {hybrid_metrics['latency_p95_ms']} ms "
-        f"(gate <= {gates.get('max_latency_p95_ms', 25.0)} ms).",
-        f"- Verdict: **{verdict}** (computed by comparing the hybrid metrics "
-        f"against `acceptance_gates` in protocol.json).",
+        "## Confusion Matrices (test split)",
         "",
-        "Thresholds and cutoffs were frozen in protocol.json before the test "
-        "split was evaluated; no threshold was adjusted after seeing test data.",
+    ]
+    for name, m in (("Rules-Only Baseline",
+                     metrics_by_model.get("rules_only", {})),
+                    ("ML-Only (Isolation Forest)",
+                     metrics_by_model.get("ml_isolation_forest", {})),
+                    ("Hybrid Ensemble",
+                     metrics_by_model.get("hybrid_ensemble", {}))):
+        lines.append(
+            f"- **{name}**: tp={m.get('tp')}, fp={m.get('fp')}, "
+            f"fn={m.get('fn')}, tn={m.get('tn')} "
+            f"(n={m.get('n_samples', 0)})")
+    lines += [
         "",
-        f"**Environment:** Python {run_manifest['environment']['python_version']}, "
+        "## Decision (computed by the R18 gate, not asserted)",
+        "",
+        f"- research_status: **{d['research_status']}**",
+        f"- activation_allowed: **{d['activation_allowed']}**",
+    ]
+    for reason in d["reasons"]:
+        lines.append(f"  - {reason}")
+    lines += [
+        f"- Claim (generated from the decision): {d['claim']}",
+        "- Thresholds and cutoffs were frozen in protocol.json before the "
+        "test split was evaluated; no threshold was adjusted after seeing "
+        "test data.",
+        f"- Evaluation seal: `{evaluation_seal['seal_hash']}` — covers the "
+        f"evaluated labels and predictions hashes, the config hash, the "
+        f"split hash, the model hash and the evaluation time "
+        f"({evaluation_seal['evaluated_at']}). Any reopening with changed "
+        "thresholds invalidates the seal and requires a NEW run — never an "
+        "independent re-test on the already-seen test data.",
+        "",
+        "## Synthetic-Data Caveat",
+        "",
+        "All metrics above are computed on a SYNTHETIC, seeded corpus "
+        "(dataset hash and identifier source recorded in the run manifest). "
+        "The 95% Wilson intervals quantify sampling noise on this synthetic "
+        "corpus ONLY — they are NOT evidence of real-world generalization, "
+        "and no institutional data was used.",
+        "",
+        f"**Environment:** Python "
+        f"{run_manifest['environment']['python_version']}, "
         f"NumPy {run_manifest['environment']['numpy_version']}, "
         f"scikit-learn {run_manifest['environment']['scikit_learn_version']}, "
         f"{run_manifest['environment']['os']}",
@@ -1651,12 +1742,157 @@ def _write_accepted_readme(path: Path, run_manifest: Dict[str, Any],
         f.write("\n".join(lines) + "\n")
 
 
+def check_gate(config_path: str,
+               run_dir: Optional[str] = None) -> int:
+    """Standalone R18 gate check over a recorded run manifest (the latest
+    one under research/results/runs/, or the given run directory).
+
+    Exit codes (spec §9):
+      0 — research gates PASSED and ML activation approved;
+      1 — FAILED (metrics present and failing), or PASSED with activation
+          denied;
+      2 — INSUFFICIENT_DATA, or the environment cannot reproduce the
+          recorded decision (missing/tampered seal, missing or mismatched
+          model artifact, missing manifest).
+    """
+    config, provenance = load_experiment_config(config_path)
+    policy = EvaluationPolicy.from_protocol(config)
+    print(f"[GATE] policy from {provenance['protocol_path']} "
+          f"(hash {provenance['config_hash']}): recall >= "
+          f"{policy.min_recall}, FPR <= {policy.max_fpr_per_1000}/1000, "
+          f"PR-AUC(AP) >= {policy.min_pr_auc}, p95 <= "
+          f"{policy.max_latency_p95_ms} ms; activation additionally requires "
+          f"recall >= baseline AND FPR <= baseline with a strict gain in at "
+          f"least one")
+
+    results_base = ROOT_DIR / "research" / "results" / "runs"
+    if run_dir:
+        manifest_path = Path(run_dir) / "run-manifest.json"
+    else:
+        candidates = sorted(results_base.glob("*/run-manifest.json"),
+                            key=lambda p: p.stat().st_mtime)
+        manifest_path = candidates[-1] if candidates else None
+    if manifest_path is None or not manifest_path.exists():
+        print("[GATE] no recorded run manifest found — environment cannot "
+              "support a gate decision")
+        return 2
+
+    with open(str(manifest_path), "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    print(f"[GATE] run {manifest.get('experiment_id')} "
+          f"({manifest_path}) — outcome {manifest.get('outcome')}")
+
+    outcome = manifest.get("outcome")
+    if outcome == RESEARCH_STATUS_INSUFFICIENT_DATA:
+        info = manifest.get("insufficient_data") or {}
+        reasons = [info.get("reason") or
+                   "no admissible evaluation splits under the strict policy"]
+        decision = GateDecision(
+            RESEARCH_STATUS_INSUFFICIENT_DATA, False, reasons,
+            claim=generate_claim_text(
+                GateDecision(RESEARCH_STATUS_INSUFFICIENT_DATA, False,
+                             reasons), None, None, None))
+        print(f"    {decision.claim}")
+        print("[GATE] exit 2 — INSUFFICIENT_DATA: the strict "
+              "temporal/participant-disjoint regime left no admissible "
+              "evaluation splits; the gates were NOT evaluated and the "
+              "rules-only baseline remains operative")
+        return 2
+    if outcome not in (RESEARCH_STATUS_PASSED, RESEARCH_STATUS_FAILED):
+        print(f"[GATE] exit 2 — unknown run outcome {outcome!r}; the "
+              f"environment cannot reproduce a decision from it")
+        return 2
+
+    problems: List[str] = []
+    seal = manifest.get("evaluation_seal")
+    problems.extend(verify_evaluation_seal(seal))
+    if isinstance(seal, dict):
+        for manifest_key in ("config_hash", "split_hash", "model_hash"):
+            if manifest.get(manifest_key) != seal.get(manifest_key):
+                problems.append(
+                    f"evaluation seal {manifest_key} does not match the run "
+                    f"manifest {manifest_key}")
+        if manifest.get("experiment_id") != seal.get("run_id"):
+            problems.append("evaluation seal run_id does not match the run "
+                            "manifest experiment_id")
+    recorded = manifest.get("gate_decision") or {}
+    if recorded.get("research_status") != outcome:
+        problems.append("recorded gate_decision.research_status does not "
+                        "match the run outcome")
+    if outcome == RESEARCH_STATUS_PASSED and \
+            recorded.get("activation_allowed") is not True:
+        problems.append("a PASSED run manifest must record "
+                        "gate_decision.activation_allowed = true")
+
+    artifact_rel = manifest.get("model_artifact_path") or MODEL_ARTIFACT_RELPATH
+    artifact_path = ROOT_DIR / artifact_rel
+    if not artifact_path.exists():
+        problems.append(
+            f"the evaluated model artifact is not deployed at {artifact_rel} "
+            f"(the server would load a different artifact)")
+    else:
+        actual_hash = compute_file_sha256(str(artifact_path))
+        if actual_hash != manifest.get("model_hash"):
+            problems.append(
+                f"deployed artifact hash {actual_hash} != run manifest "
+                f"model_hash {manifest.get('model_hash')}")
+
+    if problems:
+        for problem in problems:
+            print(f"    - {problem}")
+        print("[GATE] exit 2 — the environment cannot reproduce the recorded "
+              "decision")
+        return 2
+
+    candidate = EvaluationMetrics.from_metrics_dict(
+        manifest["metrics_by_model"]["hybrid_ensemble"])
+    baseline = EvaluationMetrics.from_metrics_dict(
+        manifest["metrics_by_model"]["rules_only"])
+    decision = evaluate_gate(candidate, baseline, policy)
+
+    if recorded.get("activation_allowed") != decision.activation_allowed:
+        print("[GATE] exit 2 — the recorded decision does not reproduce "
+              "from the recorded metrics (possible drift)")
+        return 2
+
+    print(f"    {decision.claim}")
+    for reason in decision.reasons:
+        print(f"    - {reason}")
+    if decision.research_status == RESEARCH_STATUS_PASSED \
+            and decision.activation_allowed:
+        print("[GATE] exit 0 — research gates PASSED and activation approved")
+        return 0
+    print("[GATE] exit 1 — the gate decision is negative (FAILED, or PASSED "
+          "without activation); the rules-only baseline remains operative")
+    return 1
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run empirical AML experiments")
     parser.add_argument("--config", default=str(ROOT_DIR / "research" / "protocol.json"))
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--max-records", type=int, default=None,
                         help="Short-run cap on generated records (recorded in the run manifest)")
+    parser.add_argument("--check-gate", action="store_true",
+                        help="Check the gate decision over the latest recorded run "
+                             "(exit 0 approved / 1 failed / 2 insufficient-data-or-environment) "
+                             "instead of running a new experiment")
+    parser.add_argument("--run-dir", default=None,
+                        help="With --check-gate: check a specific run directory instead of the latest")
     args = parser.parse_args()
 
-    run_experiment_suite(args.config, seed=args.seed, max_records=args.max_records)
+    if args.check_gate:
+        sys.exit(check_gate(args.config, run_dir=args.run_dir))
+
+    try:
+        run_experiment_suite(args.config, seed=args.seed,
+                             max_records=args.max_records)
+    except ProtocolConfigError as exc:
+        # Config errors crash LOUDLY — they are never recorded as the
+        # INSUFFICIENT_DATA taxonomy, which is reserved for honest data
+        # insufficiency.
+        print(f"\n[R18][CONFIG-ERROR] {exc}", file=sys.stderr)
+        print("[R18][CONFIG-ERROR] refusing to record an INSUFFICIENT_DATA "
+              "taxonomy for a configuration error — fix research/protocol.json "
+              "or the experiment-config shim.", file=sys.stderr)
+        raise
