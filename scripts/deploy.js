@@ -93,6 +93,25 @@ async function runDeployment(options = {}) {
 
   const signers = await hre.ethers.getSigners();
   signerCache = signers;
+
+  // Pre-deploy roster guard: the governance roster enrolls six wallets
+  // (4 eligible voters + non-voting OPERATOR + non-voting REGULATOR) on top
+  // of the deployer, so the network must expose at least 7 signers. On a
+  // network with fewer (e.g. sepolia with a single PRIVATE_KEY) the roster
+  // would silently fall back to the hardcoded public FALLBACK_ACCOUNTS
+  // addresses that nobody holds keys for — and finalizeBootstrap would still
+  // succeed, producing finalized, permanently un-quorate governance. Refuse
+  // to continue rather than enroll unreachable wallets.
+  if (signers.length < 7) {
+    throw new Error(
+      `Deployment refused: network "${hre.network.name}" exposes only ${signers.length} signer(s), ` +
+        `but the governance roster requires 7 signers (4 eligible voters + 1 OPERATOR + 1 REGULATOR + 1 deployer). ` +
+        `Continuing would enroll hardcoded public FALLBACK_ACCOUNTS addresses whose private keys nobody holds, ` +
+        `finalizing permanently un-quorate governance. Provide at least 7 funded signers for this network ` +
+        `(Hardhat/localhost networks supply 20 by default).`
+    );
+  }
+
   const deployer = signers[0];
   console.log(`Deployer address: ${deployer.address}`);
   const balance = await hre.ethers.provider.getBalance(deployer.address);
