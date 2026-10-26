@@ -27,8 +27,14 @@ def test_v2_health_live_endpoint():
     assert "timestamp" in data
 
 
-def test_v2_health_ready_endpoint():
+def test_v2_health_ready_endpoint(monkeypatch):
     """Readiness check: checks actual ML model and subsystems."""
+    from app.services.blockchain_listener import blockchain_listener
+    monkeypatch.setattr(
+        blockchain_listener,
+        "get_node_health",
+        lambda: {"connected": True, "rpc_url": "http://127.0.0.1:8545", "current_block": 100, "status": "ONLINE"}
+    )
     res = client.get("/api/v2/health/ready")
     assert res.status_code == 200
     data = res.json()

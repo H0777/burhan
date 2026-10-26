@@ -73,6 +73,7 @@ app.include_router(evidence_v2.router, prefix="/api/v2/evidence", tags=["Evidenc
 app.include_router(cases_v2.router, prefix="/api/v2/cases", tags=["Cases V2"])
 app.include_router(policies_v2.router, prefix="/api/v2/policies", tags=["Policies V2"])
 app.include_router(health_v2.router, prefix="/api/v2/health", tags=["Health V2"])
+app.include_router(health_v2.router, prefix="/health", tags=["Health"])
 app.include_router(identity_v2.router, prefix="/api/v2", tags=["Identity & Wallet V2"])
 app.include_router(transactions_v2.router, prefix="/api/v2/transactions", tags=["Transactions V2"])
 app.include_router(transactions_v2.imports_router, prefix="/api/v2/imports", tags=["Imports V2"])
