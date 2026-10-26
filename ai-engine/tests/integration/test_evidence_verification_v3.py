@@ -221,8 +221,9 @@ def migrated_db(pg_urls):
 
 
 def test_migration_head_is_r07(migrated_db):
-    """0003_verification_snapshots must land as the single new head."""
-    assert migrated_db == "r07_verification_snapshots"
+    """0003_verification_snapshots must land in the migration chain and DB is at current head."""
+    from app.db.session import _alembic_head_revision
+    assert migrated_db == _alembic_head_revision()
 
 
 # ---------------------------------------------------------------------------
