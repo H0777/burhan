@@ -63,11 +63,11 @@ SNAPSHOT_BLOCK = LATEST_BLOCK - CONFIRMATION_DEPTH + 1  # latest-depth+1
 SNAPSHOT_HASH = "0x" + "51" * 32
 
 PG_APP_URL = os.environ.get(
-    "R07_DATABASE_URL", "postgresql://ira_aml_app:r07app@127.0.0.1:55437/ira_aml_r07"
+    "R07_DATABASE_URL", ""
 )
 PG_MIGRATION_URL = os.environ.get(
     "R07_MIGRATION_DATABASE_URL",
-    "postgresql://ira_aml_migrator:r07mig@127.0.0.1:55437/ira_aml_r07",
+    "",
 )
 
 

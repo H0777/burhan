@@ -8,11 +8,11 @@ const ROOT_DIR = path.resolve(__dirname, "../..");
 // Deterministic test keys for Hardhat node accounts
 const HARDHAT_RPC = process.env.BLOCKCHAIN_RPC_URL || "http://127.0.0.1:8545";
 const KEYS = {
-  deployer: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-  signer1: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d", // AUDITOR
+  deployer: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80", // deployer (non-voter after bootstrap)
+  signer1: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d", // SUPER_ADMIN
   signer2: "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a", // AUDITOR
-  signer3: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6", // OPERATOR
-  signer5: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba", // Non-participant
+  signer3: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6", // AUDITOR
+  signer5: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba", // OPERATOR (non-voting)
 };
 
 function loadContractsConfig() {
@@ -50,6 +50,8 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
     SCHEMA_VERSION = evModule.SCHEMA_VERSION;
 
     manifest = loadContractsConfig();
+    manifest.contracts = manifest.addresses || manifest.contracts;
+    manifest.code_hashes = manifest.deployed_code_hashes || manifest.code_hashes;
     provider = new ethers.JsonRpcProvider(HARDHAT_RPC);
 
     const makeSigner = (key) => {
@@ -151,9 +153,9 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
   });
 
   test("1.3 MultiSig Governance Lifecycle with SoD and Four-Eyes Enforcement", async () => {
-    // Proposer (signer1) creates a proposal to assign an OPERATOR role to a new operator address
+    // Proposer (signer1) creates a proposal to assign an OPERATOR role to an enrolled participant
     const targetAddress = manifest.contracts.RoleManager;
-    const testOperatorAddress = "0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f";
+    const testOperatorAddress = manifest.participants[5].account; // Enrolled REGULATOR participant assigned to OPERATOR
     const iface = new ethers.Interface(loadArtifact("RoleManager", "access").abi);
     const callData = iface.encodeFunctionData("assignRole", [
       testOperatorAddress,
@@ -197,14 +199,14 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
       multiSig.connect(signer1Wallet).approveProposal.staticCall(proposalId)
     ).rejects.toThrow(/proposer cannot approve own proposal/i);
 
-    // NEGATIVE CHECK 2: Non-participant attempts to vote
+    // NEGATIVE CHECK 2: Non-participant (deployer whose bootstrap role was dropped) attempts to vote
     await expect(
-      multiSig.connect(signer5Wallet).approveProposal.staticCall(proposalId)
+      multiSig.connect(deployerWallet).approveProposal.staticCall(proposalId)
     ).rejects.toThrow(/caller not authorized to participate/i);
 
-    // NEGATIVE CHECK 2b: Unauthorized participant (role OPERATOR) attempts to vote
+    // NEGATIVE CHECK 2b: Unauthorized participant (role OPERATOR: signer5) attempts to vote
     await expect(
-      multiSig.connect(signer3Wallet).approveProposal.staticCall(proposalId)
+      multiSig.connect(signer5Wallet).approveProposal.staticCall(proposalId)
     ).rejects.toThrow(/caller not authorized to participate/i);
 
     // STEP 1: First distinct approval by signer2 (AUDITOR)
@@ -220,8 +222,8 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
       multiSig.connect(signer2Wallet).approveProposal.staticCall(proposalId)
     ).rejects.toThrow(/already voted/i);
 
-    // STEP 2: Second distinct approval by deployer (SUPER_ADMIN)
-    const approveTx2 = await multiSig.connect(deployerWallet).approveProposal(proposalId);
+    // STEP 2: Second distinct approval by signer3 (AUDITOR)
+    const approveTx2 = await multiSig.connect(signer3Wallet).approveProposal(proposalId);
     await approveTx2.wait();
 
     proposal = await multiSig.getProposal(proposalId);
@@ -230,7 +232,11 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
     // CRITICAL: Proposal must NOT be executed automatically
     expect(Number(proposal.status)).not.toBe(2);
 
-    // STEP 3: Atomic execution
+    // STEP 3: Advance time past TIMELOCK_DELAY (86400s) for ROLE_CHANGE
+    await provider.send("evm_increaseTime", [86401]);
+    await provider.send("evm_mine");
+
+    // STEP 4: Atomic execution
     const execTx = await multiSig.connect(signer1Wallet).executeProposal(proposalId);
     const execReceipt = await execTx.wait();
     expect(execReceipt.status).toBe(1);
@@ -275,7 +281,12 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
     const authPropId = propEvent.args.proposalId;
 
     await (await multiSig.connect(signer2Wallet).approveProposal(authPropId)).wait();
-    await (await multiSig.connect(deployerWallet).approveProposal(authPropId)).wait();
+    await (await multiSig.connect(signer3Wallet).approveProposal(authPropId)).wait();
+
+    // Advance Hardhat node time past TIMELOCK_DELAY (86400s) for SYSTEM_CONFIG (setEvidenceWriter grant)
+    await provider.send("evm_increaseTime", [86401]);
+    await provider.send("evm_mine");
+
     await (await multiSig.connect(signer1Wallet).executeProposal(authPropId)).wait();
 
     const isWriter = await forensicTrail.isEvidenceWriter(signer1Wallet.address);
@@ -387,7 +398,7 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
       signatures: {
         proposer: signer1Wallet.address,
         first_approver: signer2Wallet.address,
-        second_approver: deployerWallet.address,
+        second_approver: signer3Wallet.address,
       },
     };
 

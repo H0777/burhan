@@ -3126,7 +3126,7 @@
     },
     "/api/v2/health/ready": {
       "get": {
-        "description": "Verifies that required internal subsystems (ML engine, policy service, schemas)\nare operational.",
+        "description": "Verifies that required internal subsystems and external dependencies\n(DB, migrations, KMS/vault, EVM RPC, ML engine, policy service) are operational.\nWhen EVM RPC or optional services are down, degrades gracefully:\nmarks status='degraded', ready=False, returns HTTP 503 with explicit diagnostic reasons.",
         "operationId": "ready_check_api_v2_health_ready_get",
         "responses": {
           "200": {
@@ -3141,6 +3141,28 @@
           }
         },
         "summary": "Subsystem readiness check",
+        "tags": [
+          "Health V2"
+        ]
+      }
+    },
+    "/api/v2/health/startup": {
+      "get": {
+        "description": "Verifies that startup invariants (config, DB, migrations, vault)\nhave been satisfied before traffic routing.",
+        "operationId": "startup_check_api_v2_health_startup_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Startup completion probe",
         "tags": [
           "Health V2"
         ]

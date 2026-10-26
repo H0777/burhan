@@ -59,7 +59,8 @@ class EvmRpcClient:
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.contract_address = data.get("contracts", {}).get("ForensicTrail")
+                    contracts = data.get("addresses") or data.get("contracts") or {}
+                    self.contract_address = contracts.get("ForensicTrail")
             except Exception:
                 self.contract_address = None
 

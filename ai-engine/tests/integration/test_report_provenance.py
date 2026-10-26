@@ -7,6 +7,9 @@ import os
 import io
 import json
 import zipfile
+import tempfile
+import hashlib
+from pathlib import Path
 import pytest
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
@@ -82,6 +85,11 @@ def db_session():
     )
     session.add(evt)
 
+    ev_bytes = b"tx_id,amount,currency\nTX1001,50000,USD\n"
+    tmp_ev_path = Path(tempfile.gettempdir()) / "test_hawala_ledger.csv"
+    tmp_ev_path.write_bytes(ev_bytes)
+    ev_hash = hashlib.sha256(ev_bytes).hexdigest()
+
     # Seed Evidence Object and Anchor
     ev = EvidenceObject(
         id="EV-OBJ-001",
@@ -91,9 +99,9 @@ def db_session():
         object_version=1,
         file_name="hawala_ledger_sheet.csv",
         content_type="text/csv",
-        file_size=128,
-        sha256_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        storage_path="/tmp/nonexistent_test.csv",
+        file_size=len(ev_bytes),
+        sha256_hash=ev_hash,
+        storage_path=str(tmp_ev_path),
         encrypted=False,
     )
     anchor = EvidenceAnchor(

@@ -114,10 +114,12 @@ class ChainRegistry:
         return self.manifest.get("institution_id", settings.INSTITUTION_ID)
 
     def get_contract_address(self, contract_name: str) -> Optional[str]:
-        return self.manifest.get("contracts", {}).get(contract_name)
+        contracts = self.manifest.get("addresses") or self.manifest.get("contracts") or {}
+        return contracts.get(contract_name)
 
     def get_expected_code_hash(self, contract_name: str) -> Optional[str]:
-        return self.manifest.get("code_hashes", {}).get(contract_name)
+        hashes = self.manifest.get("deployed_code_hashes") or self.manifest.get("code_hashes") or {}
+        return hashes.get(contract_name)
 
     def get_confirmation_depth(self, chain_id: Optional[int] = None) -> int:
         cid = chain_id or self.get_chain_id()
