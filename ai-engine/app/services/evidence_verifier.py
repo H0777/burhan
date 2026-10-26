@@ -30,6 +30,11 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 
+from app.services.encrypted_object import (
+    EncryptedObjectError,
+    MissingKeyMaterialError,
+    InvalidCiphertextError,
+)
 from app.schemas.evidence import (
     EvidenceV2,
     EvidenceVerificationRequest,
@@ -547,8 +552,13 @@ def verify_case_evidence(
         except FileNotFoundError:
             reasons.append(f"{REASON_FILE_MISSING}: {ev_id}")
             continue
-        except ValueError:
+        except (ValueError, InvalidCiphertextError):
             reasons.append(f"{REASON_FILE_TAMPERED}: {ev_id}")
+            continue
+        except MissingKeyMaterialError as exc:
+            return finish_unavailable([f"{REASON_KEY_TIME_UNPROVEN}: {ev_id} ({exc})"])
+        except EncryptedObjectError as exc:
+            reasons.append(f"{REASON_FILE_TAMPERED}: {ev_id} ({exc})")
             continue
         data_sha = hashlib.sha256(data).hexdigest()
         if data_sha.lower() != str(row.sha256_hash).lower():
