@@ -1,9 +1,10 @@
 {
-  "institution_id": "INST-CENTRAL-DEMO",
+  "app_mode": "demo",
+  "api_origin": "",
   "chain_id": 31337,
   "rpc_url": "http://127.0.0.1:8545",
-  "ai_engine_url": "/api",
-  "app_mode": "demo",
+  "deployment_id": "0xdb9ad505f5645f1b1bbcac219c63fc18b57b5c0525a69903125e2353f3167f5f",
+  "institution_id": "INST-CENTRAL-DEMO",
   "contract_version": "2.1.0",
   "contracts": {
     "RoleManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",

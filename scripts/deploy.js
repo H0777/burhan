@@ -323,11 +323,12 @@ async function runDeployment(options = {}) {
 
   // 14. Export runtime config for frontend (derived convenience artifact)
   const runtimeConfig = {
-    institution_id: institutionId,
+    app_mode: process.env.APP_MODE || "demo",
+    api_origin: process.env.VITE_API_ORIGIN || "",
     chain_id: chainId,
     rpc_url: process.env.VITE_RPC_URL || "http://127.0.0.1:8545",
-    ai_engine_url: process.env.VITE_AI_ENGINE_URL || "/api",
-    app_mode: process.env.APP_MODE || "demo",
+    deployment_id: manifest.deployment_id || "demo-local",
+    institution_id: institutionId,
     contract_version: CONTRACT_VERSION,
     contracts: contractAddresses,
   };

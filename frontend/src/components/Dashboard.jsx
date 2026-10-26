@@ -535,6 +535,21 @@ export function Dashboard({
               </tr>
             </thead>
             <tbody className="divide-y divide-cyber-800 text-gray-300">
+              {filteredTxs.length === 0 && (
+                <tr>
+                  <td colSpan="9" className="px-4 py-12 text-center text-gray-500">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Search className="w-8 h-8 text-gray-600" />
+                      <p className="text-sm font-semibold text-gray-400">
+                        {isRtl ? 'لا توجد معاملات تطابق معايير البحث والفلترة' : 'No transactions match the selected criteria'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {isRtl ? 'حاول تغيير شروط الفلتر أو مسح نص البحث' : 'Try clearing filters or search query'}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
               {filteredTxs.map((tx) => (
                 <tr key={tx.id} className="hover:bg-cyber-800/40 transition-colors">
                   <td className="px-4 py-3 font-mono text-cyan-400 font-semibold">#{tx.id}</td>
@@ -636,49 +651,70 @@ export function Dashboard({
 }
 
 function KpiCard({ title, value, subtitle, icon: Icon, color, badge, onClick }) {
-  const styles = {
-    blue: 'border-cyan-500/30 text-cyan-400 bg-cyan-500/10 shadow-glow-cyan',
-    amber: 'border-amber-500/30 text-amber-400 bg-amber-500/10 shadow-glow-amber',
-    rose: 'border-rose-500/30 text-rose-400 bg-rose-500/10 shadow-glow-rose',
-    emerald: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10 shadow-glow-emerald',
+  const colorStyles = {
+    blue: {
+      icon: 'text-cyan-400 bg-cyan-500/15 border-cyan-500/30 shadow-glow-cyan',
+      gradient: 'from-cyan-500/10 via-transparent to-transparent',
+      border: 'hover:border-cyan-500/50',
+    },
+    amber: {
+      icon: 'text-amber-400 bg-amber-500/15 border-amber-500/30 shadow-glow-amber',
+      gradient: 'from-amber-500/10 via-transparent to-transparent',
+      border: 'hover:border-amber-500/50',
+    },
+    rose: {
+      icon: 'text-rose-400 bg-rose-500/15 border-rose-500/30 shadow-glow-rose',
+      gradient: 'from-rose-500/10 via-transparent to-transparent',
+      border: 'hover:border-rose-500/50',
+    },
+    emerald: {
+      icon: 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30 shadow-glow-emerald',
+      gradient: 'from-emerald-500/10 via-transparent to-transparent',
+      border: 'hover:border-emerald-500/50',
+    },
   }
+
+  const current = colorStyles[color] || colorStyles.blue
 
   return (
     <div
       onClick={onClick}
-      className={`p-4 rounded-2xl cyber-card relative overflow-hidden transition-all ${
-        onClick ? 'cursor-pointer hover:border-cyan-500 hover:scale-[1.01]' : ''
+      className={`p-4 rounded-2xl cyber-card relative overflow-hidden transition-all bg-gradient-to-b ${current.gradient} ${
+        onClick ? `cursor-pointer ${current.border} hover:-translate-y-0.5` : ''
       }`}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-400 font-medium">{title}</span>
-        <div className={`p-2 rounded-xl ${styles[color]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <span className="text-xs text-gray-400 font-medium block">{title}</span>
+          {badge && (
+            <span className="inline-block mt-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyber-950/80 border border-cyber-800 text-gray-300 font-bold">
+              {badge}
+            </span>
+          )}
+        </div>
+        <div className={`p-2 rounded-xl border ${current.icon} shrink-0`}>
           <Icon className="w-4 h-4" />
         </div>
       </div>
-      <div className="mt-2">
-        <h3 className="text-2xl font-bold text-white tracking-tight font-mono">{value}</h3>
-        <p className="text-[11px] text-gray-400 mt-0.5">{subtitle}</p>
+      <div className="mt-3">
+        <h3 className="text-2xl font-black text-white tracking-tight font-mono">{value}</h3>
+        <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1.5 font-medium">{subtitle}</p>
       </div>
-      {badge && (
-        <span className="absolute top-2 right-2 text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyber-950 border border-cyber-800 text-gray-300">
-          {badge}
-        </span>
-      )}
     </div>
   )
 }
 
 function StatusBadge({ status, t }) {
   const config = [
-    { label: t?.statusPending || 'Pending', cls: 'bg-blue-950 text-blue-300 border-blue-800' },
-    { label: t?.statusCleared || 'Cleared', cls: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
-    { label: t?.statusFlagged || 'Flagged', cls: 'bg-amber-950 text-amber-300 border-amber-800' },
-    { label: t?.statusBlocked || 'Blocked', cls: 'bg-rose-950 text-rose-300 border-rose-800' },
+    { label: t?.statusPending || 'Pending', cls: 'bg-blue-950/80 text-blue-300 border-blue-800/80', dot: 'bg-blue-400' },
+    { label: t?.statusCleared || 'Cleared', cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80', dot: 'bg-emerald-400' },
+    { label: t?.statusFlagged || 'Flagged', cls: 'bg-amber-950/80 text-amber-300 border-amber-800/80', dot: 'bg-amber-400' },
+    { label: t?.statusBlocked || 'Blocked', cls: 'bg-rose-950/80 text-rose-300 border-rose-800/80', dot: 'bg-rose-400 animate-pulse' },
   ]
-  const { label, cls } = config[status] || config[0]
+  const { label, cls, dot } = config[status] || config[0]
   return (
-    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${cls}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border backdrop-blur-sm ${cls}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`}></span>
       {label}
     </span>
   )

@@ -1,0 +1,31 @@
+{
+  "model_hash": "0x9df3d433cf298ea3f7c4b92abf63ce599159330df5a6ab8a4d36d5817236306a",
+  "feature_schema": [
+    "amount_minor",
+    "sender_daily_volume_minor",
+    "sender_daily_count",
+    "sender_window_burst_10m",
+    "is_after_hours",
+    "structuring_ratio"
+  ],
+  "training_dataset_hash": "0x2897cba193436940d95494df1c15d2434a77f6bca9fd53dd349476281d25fb8d",
+  "library_versions": {
+    "scikit_learn": "1.9.1",
+    "numpy": "2.5.4",
+    "joblib": "1.6.0"
+  },
+  "created_at": "2026-10-23T10:29:58.024130+00:00",
+  "metrics": {
+    "precision": 0.9907,
+    "recall": 0.7698,
+    "f1_score": 0.8664,
+    "pr_auc": 0.8188,
+    "fpr_per_1000": 1.57,
+    "latency_p95_ms": 21.6,
+    "tp": 107,
+    "fp": 1,
+    "fn": 32,
+    "tn": 636,
+    "total_eval": 776
+  }
+}

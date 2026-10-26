@@ -1,0 +1,52 @@
+{
+  "institution_id": "INST-CENTRAL-DEMO",
+  "chain_id": 31337,
+  "deployed_at": "2026-10-23T09:50:18.277Z",
+  "contract_version": "2.0.0",
+  "network": "localhost",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "bootstrap_finalized": true,
+  "contracts": {
+    "RoleManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "InsiderActivityLog": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "ForensicTrail": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "ComplianceRules": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+    "MultiSigApproval": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "AuditEngine": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+  },
+  "code_hashes": {
+    "RoleManager": "0x2b029d7d45821d180d59726116499fa711824f955dbd96c8f33f4e92a4cbb5aa",
+    "InsiderActivityLog": "0x640786d618073cbebee830c9b28213bff2322445c218af3aa8ebe455d1811047",
+    "ForensicTrail": "0xd9d4a4a6df0fce03c0f2d7de947285c78f5f29e1704a7d869839ac076b981a79",
+    "ComplianceRules": "0xa24e26cbab9b95f1238f7fb4e0cbb4d579f8bae180300512a5093853ddb08e08",
+    "MultiSigApproval": "0xf43d82ddb13d55ca3a60c4a1f99587f3ade8858bcc9fec66a40aec0e1c9dda19",
+    "AuditEngine": "0x3b9eb581193d0cfe4a9bb1dafe6e6a614833d96c34acbd0dd988122b4b6e9513"
+  },
+  "participants": [
+    {
+      "account": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+      "role": 1,
+      "reason": "SYSTEM: Genesis Deployer Super Admin"
+    },
+    {
+      "account": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "role": 2,
+      "reason": "SYSTEM: Primary Forensic Compliance Auditor"
+    },
+    {
+      "account": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "role": 2,
+      "reason": "SYSTEM: Secondary Forensic Compliance Auditor"
+    },
+    {
+      "account": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+      "role": 3,
+      "reason": "SYSTEM: Core Banking Operations Lead"
+    },
+    {
+      "account": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+      "role": 4,
+      "reason": "SYSTEM: CBI Central Bank Oversight Inspector"
+    }
+  ]
+}

@@ -26,83 +26,106 @@ export function Sidebar({
   t,
   isRtl,
 }) {
-  const navItems = [
-    { id: 'dashboard', label: t?.navDashboard || 'Executive Overview', icon: LayoutDashboard },
-    { id: 'cases', label: t?.navCases || (isRtl ? 'دورة القضايا والحوكمة (V2)' : 'Case Lifecycle & Governance'), icon: FolderCheck, badge: 'V2' },
-    { id: 'insider', label: t?.navInsider || 'Insider Threat Monitor', icon: UserCheck, badge: 'AI' },
-    { id: 'forensics', label: t?.navForensics || 'Forensic Chain of Custody', icon: FileSearch, badge: 'Proof' },
-    { id: 'risk-scoring', label: t?.navRiskScoring || 'AI Fraud Risk Engine', icon: Activity },
-    { id: 'contract-scanner', label: t?.navContractScanner || 'Smart Contract Auditor', icon: Code2 },
-    { id: 'reports', label: t?.navReports || 'Bilingual Forensic Dossier', icon: FileText },
-    { id: 'governance', label: t?.navGovernance || 'RBAC & MultiSig 4-Eyes', icon: KeyRound },
+  const navSections = [
+    {
+      title: isRtl ? 'الرقابة التنفيذية والعمليات' : 'Operations & Monitoring',
+      items: [
+        { id: 'dashboard', label: t?.navDashboard || 'Executive Overview', icon: LayoutDashboard },
+        { id: 'cases', label: t?.navCases || (isRtl ? 'إدارة القضايا الجنائية (V2)' : 'Case Lifecycle & Governance'), icon: FolderCheck, badge: 'V2' },
+      ],
+    },
+    {
+      title: isRtl ? 'التحقيق الجنائي والذكاء الاصطناعي' : 'Forensics & AI Detection',
+      items: [
+        { id: 'insider', label: t?.navInsider || 'Insider Threat Monitor', icon: UserCheck, badge: 'AI' },
+        { id: 'forensics', label: t?.navForensics || 'Forensic Chain of Custody', icon: FileSearch, badge: 'Proof' },
+        { id: 'risk-scoring', label: t?.navRiskScoring || 'AI Fraud Risk Engine', icon: Activity },
+        { id: 'contract-scanner', label: t?.navContractScanner || 'Smart Contract Auditor', icon: Code2 },
+      ],
+    },
+    {
+      title: isRtl ? 'الحوكمة والتقارير الرقابية' : 'Governance & Dossier',
+      items: [
+        { id: 'reports', label: t?.navReports || 'Bilingual Forensic Dossier', icon: FileText },
+        { id: 'governance', label: t?.navGovernance || 'RBAC & MultiSig 4-Eyes', icon: KeyRound },
+      ],
+    },
   ]
 
   return (
     <aside
-      className={`w-64 bg-cyber-900 border-cyber-800 flex flex-col justify-between shrink-0 min-h-screen z-20 ${
+      className={`w-64 bg-cyber-900/95 backdrop-blur-xl border-cyber-800 flex flex-col justify-between shrink-0 min-h-screen z-20 ${
         isRtl ? 'border-l font-arabic text-right' : 'border-r font-sans text-left'
       }`}
       dir={isRtl ? 'rtl' : 'ltr'}
     >
       {/* Brand & Title */}
       <div>
-        <div className="p-5 border-b border-cyber-800">
+        <div className="p-5 border-b border-cyber-800/80">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-glow-cyan shrink-0">
-              <ShieldAlert className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-glow-cyan shrink-0 ring-1 ring-cyan-400/30">
+              <ShieldAlert className="w-5 h-5 text-white" />
             </div>
             <div>
               <h2 className="font-bold text-white text-sm tracking-wide flex items-center gap-1.5">
                 CYBER-AUDIT
-                <span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-mono font-bold">
+                <span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-mono font-bold border border-cyan-500/30">
                   v2.5
                 </span>
               </h2>
               <p className="text-[11px] text-gray-400 font-medium leading-tight">
-                {isRtl ? 'التدقيق والتحقيق الجنائي' : 'Digital Forensics & AML'}
+                {isRtl ? 'التدقيق والتحقيق الجنائي الرقمي' : 'Digital Forensics & AML'}
               </p>
             </div>
           </div>
-          <div className="mt-3 px-2.5 py-1.5 bg-cyber-950/80 rounded-xl border border-cyber-800/80">
-            <p className="text-[10px] text-gray-400 leading-snug">
-              {t?.projectScope || 'Central Bank of Iraq (CBI) | Insider Threat Fraud Mitigation'}
+          <div className="mt-3 px-2.5 py-1.5 bg-cyber-950/90 rounded-xl border border-cyber-800/90 flex items-center justify-between">
+            <p className="text-[10px] text-gray-400 leading-snug truncate">
+              {t?.projectScope || 'CBI Law No. 39 | AML Compliance'}
             </p>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" title="Operational"></span>
           </div>
         </div>
 
-        {/* Navigation Links */}
-        <nav className="p-3 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon
-            const isActive = currentView === item.id
-            return (
-              <button
-                key={item.id}
-                onClick={() => setCurrentView(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
-                  isActive
-                    ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-glow-cyan'
-                    : 'text-gray-400 hover:text-white hover:bg-cyber-800/60'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-gray-400'}`} />
-                  <span className="truncate">{item.label}</span>
-                </div>
-                {item.badge && (
-                  <span
-                    className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+        {/* Navigation Links Grouped */}
+        <nav className="p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-270px)]">
+          {navSections.map((section, sIdx) => (
+            <div key={sIdx} className="space-y-1">
+              <div className="px-3 text-[10px] font-mono font-bold uppercase tracking-wider text-gray-500/90 mb-1.5">
+                {section.title}
+              </div>
+              {section.items.map((item) => {
+                const Icon = item.icon
+                const isActive = currentView === item.id
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setCurrentView(item.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                       isActive
-                        ? 'bg-white/20 text-white'
-                        : 'bg-cyan-950 text-cyan-300 border border-cyan-800'
+                        ? 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-glow-cyan ring-1 ring-cyan-400/40'
+                        : 'text-gray-400 hover:text-white hover:bg-cyber-800/60'
                     }`}
                   >
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            )
-          })}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    {item.badge && (
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold shrink-0 ${
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : 'bg-cyan-950 text-cyan-300 border border-cyan-800/80'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
         </nav>
       </div>
 
