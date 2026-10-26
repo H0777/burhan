@@ -30,7 +30,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "outbox_delivery"
-down_revision = "r06_evidence_crypto"
+down_revision = "r07_verification_snapshots"
 branch_labels = None
 depends_on = None
 
