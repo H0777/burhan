@@ -221,14 +221,108 @@ class Outbox(Base):
     institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
     event_type = Column(String(64), nullable=False)
     payload_json = Column(Text, nullable=False)
-    status = Column(String(32), nullable=False, default="PENDING")  # PENDING, PROCESSING, COMPLETED, FAILED
+    # R08 delivery states (spec §7): PENDING, PROCESSING, SUBMITTED,
+    # COMPLETED, FAILED, DEAD. SUBMITTED is NOT final (slow confirmation
+    # keeps reconciling without consuming a retry).
+    status = Column(String(32), nullable=False, default="PENDING")
     attempts = Column(Integer, nullable=False, default=0)
     error_message = Column(Text, nullable=True)
+    # R08 lease columns (spec §7): claim ownership is a lease with an owner
+    # token; every state transition from PROCESSING is a conditional update
+    # on lease_token so a stale worker can never complete a reclaimed item.
+    lease_owner = Column(String(128), nullable=True)
+    lease_token = Column(String(64), nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    last_error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     processed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_outbox_status_attempts", "status", "attempts"),
+        Index("ix_outbox_claim", "institution_id", "status", "next_attempt_at"),
+    )
+
+
+class ChainSubmission(Base):
+    """R08 raw-transaction persistence (spec §7).
+
+    The signed raw transaction, its tx_hash and its nonce are persisted HERE
+    before any broadcast: a crash after this commit re-broadcasts the SAME
+    transaction (same nonce, same hash). The signer's private key is never
+    stored here — only the derived signer address.
+    """
+
+    __tablename__ = "chain_submissions"
+
+    id = Column(String(64), primary_key=True)
+    institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    chain_id = Column(Integer, nullable=False)
+    signer_address = Column(String(42), nullable=False)
+    nonce = Column(BigInteger, nullable=False)
+    submission_kind = Column(String(32), nullable=False)  # EVIDENCE_ATTESTED | CASE_INCIDENT
+    request_id = Column(String(66), nullable=False)
+    payload_digest = Column(String(64), nullable=False)
+    protected_raw_tx = Column(Text, nullable=False)
+    tx_hash = Column(String(66), nullable=False)
+    # SIGNED (persisted, pre-broadcast), BROADCAST, CONFIRMED,
+    # RECEIPT_STATUS_ZERO, REORGED
+    status = Column(String(32), nullable=False, default="SIGNED")
+    broadcast_at = Column(DateTime(timezone=True), nullable=True)
+    stuck_alerted_at = Column(DateTime(timezone=True), nullable=True)
+    receipt_block_number = Column(BigInteger, nullable=True)
+    receipt_block_hash = Column(String(66), nullable=True)
+    receipt_status = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        # nonce allocation is serialized per chain+signer by a PostgreSQL
+        # advisory lock; this constraint is the belt-and-braces guarantee
+        # that no two persisted submissions ever share a nonce.
+        UniqueConstraint("chain_id", "signer_address", "nonce", name="uq_chain_submission_nonce"),
+        UniqueConstraint("institution_id", "request_id", "submission_kind", name="uq_chain_submission_request"),
+        Index("ix_chain_submissions_signer", "chain_id", "signer_address", "nonce"),
+    )
+
+
+class CaseIncidentMapping(Base):
+    """R08 case-reference idempotent incident creation (spec §7).
+
+    Binds (institution, deployment, case) to the real on-chain incident id
+    created via createIncidentForCase. The anchor path NEVER assumes
+    incident_id=1 — it resolves the incident through this mapping.
+    """
+
+    __tablename__ = "case_incident_mappings"
+
+    id = Column(String(64), primary_key=True)
+    institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    deployment_id = Column(String(66), nullable=False)
+    case_id = Column(String(64), nullable=False)
+    case_reference_hash = Column(String(66), nullable=False)
+    incident_id = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("institution_id", "deployment_id", "case_id", name="uq_case_incident_mapping"),
+    )
+
+
+class WorkerHeartbeat(Base):
+    """R08 per-worker heartbeat (spec §7): every worker records a live
+    heartbeat each cycle; stale heartbeats are observable, not inferred."""
+
+    __tablename__ = "worker_heartbeats"
+
+    id = Column(String(64), primary_key=True)
+    institution_id = Column(String(64), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    worker_id = Column(String(128), nullable=False)
+    role = Column(String(32), nullable=False)  # anchor | indexer
+    heartbeat_at = Column(DateTime(timezone=True), nullable=False)
+    detail_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("institution_id", "worker_id", "role", name="uq_worker_heartbeat"),
     )
 
 
@@ -444,6 +538,9 @@ RLS_TABLES = [
     "assessments",
     "chain_events",
     "checkpoints",
+    "chain_submissions",
+    "case_incident_mappings",
+    "worker_heartbeats",
 ]
 
 # Global table: RLS enabled with an explicit policy — never assumed safe merely

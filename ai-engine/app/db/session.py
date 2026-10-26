@@ -196,10 +196,17 @@ def tenant_transaction(session: Session, institution_id: str) -> Generator[Sessi
 
     try:
         if is_postgres:
-            session.execute(
-                text("SELECT set_config('app.current_institution_id', :inst_id, true)"),
-                {"inst_id": inst_id},
-            )
+            # R08: set the tenant context BEFORE any autoflush can fire —
+            # a dirty ORM object flushed during this execute would otherwise
+            # run its UPDATE/INSERT outside the tenant policy and fail under
+            # FORCEd RLS (StaleDataError / 0 rows matched). no_autoflush
+            # scopes to exactly this statement; later executes inside the
+            # transaction flush normally, with the context applied.
+            with session.no_autoflush:
+                session.execute(
+                    text("SELECT set_config('app.current_institution_id', :inst_id, true)"),
+                    {"inst_id": inst_id},
+                )
         yield session
         session.commit()
     except Exception:

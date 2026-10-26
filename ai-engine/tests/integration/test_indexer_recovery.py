@@ -9,7 +9,7 @@ import pytest
 import uuid
 import json
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -334,3 +334,46 @@ def test_code_hash_mismatch_detection():
             rpc_client=rpc_client,
             contract_name="ForensicTrail",
         )
+
+
+def test_indexer_records_per_worker_heartbeat(db_session):
+    """R08: the indexer writes a per-worker heartbeat row every cycle, with
+    an injectable clock (no real sleeps) — stale workers are observable."""
+    from app.workers.indexer import BlockchainIndexerWorker as _W
+    from datetime import datetime as _dt
+
+    class FixedClock:
+        def __init__(self):
+            self.now = _dt(2026, 10, 25, 12, 0, 0, tzinfo=timezone.utc)
+
+        def __call__(self):
+            return self.now
+
+    clock = FixedClock()
+    listener = MockBlockchainListener(current_block=5)
+    worker = _W(listener=listener)
+
+    hb1 = worker.record_heartbeat(
+        session=db_session, institution_id="inst_cbi",
+        worker_id="indexer_cbi_1", clock=clock, detail={"step": 1},
+    )
+    assert hb1.heartbeat_at == clock()
+
+    clock.now = clock.now + timedelta(seconds=30)
+    hb2 = worker.record_heartbeat(
+        session=db_session, institution_id="inst_cbi",
+        worker_id="indexer_cbi_1", clock=clock, detail={"step": 2},
+    )
+    db_session.commit()
+
+    assert hb2.id == hb1.id  # upsert: ONE row per (institution, worker, role)
+    actual_dt = hb2.heartbeat_at if hb2.heartbeat_at.tzinfo else hb2.heartbeat_at.replace(tzinfo=timezone.utc)
+    assert actual_dt == clock()
+    rows = db_session.execute(
+        select(CheckpointRecord).where(CheckpointRecord.institution_id == "indexer_no_rows")
+    ).scalars().all()
+    assert rows == []
+    from app.db.models import WorkerHeartbeat
+    all_hb = db_session.execute(select(WorkerHeartbeat)).scalars().all()
+    assert len(all_hb) == 1
+    assert all_hb[0].role == "indexer"
