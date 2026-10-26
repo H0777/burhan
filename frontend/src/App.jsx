@@ -270,13 +270,16 @@ export default function App() {
         {/* Top Command Bar & Global Header */}
         <header className="h-16 px-6 bg-cyber-900/90 border-b border-cyber-800 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md">
           {/* Left Title / Scope */}
-          <div className="flex items-center gap-3">
-            <span className="text-xs uppercase font-extrabold tracking-wider text-cyan-400 font-mono flex items-center gap-1.5">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-xs uppercase font-extrabold tracking-wider text-cyan-400 font-mono flex items-center gap-1.5 shrink-0">
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
               {t?.version || 'v2.5'}
             </span>
-            <span className="text-sm font-bold text-white truncate max-w-sm sm:max-w-md">
-              {t?.systemTitle || 'Cyber-Auditing AML & Digital Forensics System'}
+            <span className="text-sm font-black text-white tracking-[0.14em] shrink-0">
+              {isRtl ? 'بُرهان | BURHAN' : 'BURHAN | بُرهان'}
+            </span>
+            <span className="hidden xl:inline text-[10px] font-mono text-gray-500 truncate max-w-md">
+              {t?.brandExpansion || 'Blockchain · Unified · Risk-Audit · Heuristics · AML · Network-Forensics'}
             </span>
           </div>
 

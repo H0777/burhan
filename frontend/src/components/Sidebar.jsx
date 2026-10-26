@@ -66,19 +66,24 @@ export function Sidebar({
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center shadow-glow-cyan shrink-0 ring-1 ring-cyan-400/30">
               <ShieldAlert className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <h2 className="font-bold text-white text-sm tracking-wide flex items-center gap-1.5">
-                CYBER-AUDIT
-                <span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-mono font-bold border border-cyan-500/30">
+            <div className="min-w-0">
+              <h2 className="font-extrabold text-white text-base tracking-[0.18em] leading-none flex items-center gap-1.5">
+                BURHAN
+                <span className="text-[9px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded font-mono font-bold border border-cyan-500/30 tracking-normal">
                   v2.5
                 </span>
               </h2>
-              <p className="text-[11px] text-gray-400 font-medium leading-tight">
-                {isRtl ? 'التدقيق والتحقيق الجنائي الرقمي' : 'Digital Forensics & AML'}
+              <p className={`text-[12px] text-cyan-300 font-bold leading-tight mt-1 ${isRtl ? 'font-arabic' : ''}`}>
+                {isRtl ? 'بُرهان' : 'Risk-audit · AML · Forensics'}
               </p>
             </div>
           </div>
-          <div className="mt-3 px-2.5 py-1.5 bg-cyber-950/90 rounded-xl border border-cyber-800/90 flex items-center justify-between">
+          <p className="mt-2.5 text-[8px] font-mono text-gray-500 leading-[1.5] tracking-tight">
+            [B]lockchain • [U]nified • [R]isk-Audit
+            <br />
+            [H]euristics • [A]ML • [N]etwork-Forensics
+          </p>
+          <div className="mt-2.5 px-2.5 py-1.5 bg-cyber-950/90 rounded-xl border border-cyber-800/90 flex items-center justify-between">
             <p className="text-[10px] text-gray-400 leading-snug truncate">
               {t?.projectScope || 'CBI Law No. 39 | AML Compliance'}
             </p>

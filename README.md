@@ -1,7 +1,35 @@
 <div align="center">
 
-# 🛡️ Iraq AML Cyber-Audit Chain
-### Integrating Digital Forensics and Financial Accounting: A Cyber-Auditing System for Mitigating Insider Threat Fraud
+<img src="./docs/assets/burhan-dashboard-en.png" alt="BURHAN — Blockchain Unified Risk-audit, Heuristic AML & Network-forensics" width="100%" />
+
+<br/>
+
+# BURHAN | بُرهان
+
+### Blockchain Unified Risk-audit, Heuristic AML & Network-forensics
+
+**المنظومة الموحدة لتقييم مخاطر سلاسل الكتل، والتدقيق الاستدلالي، والتحريات الجنائية لمكافحة غسل الأموال**
+
+<sub>Integrating Digital Forensics and Financial Accounting — A Cyber-Auditing System for Mitigating Insider Threat Fraud</sub>
+
+<br/>
+
+```
+========================================================================================
+ [B]lockchain  •  [U]nified  •  [R]isk-Audit  •  [H]euristics  •  [A]ML  •  [N]etwork-Forensics
+========================================================================================
+```
+
+| Letter | Pillar | What it delivers |
+|:---:|:---|:---|
+| **B** | **Blockchain** | Immutable on-chain audit ledger — Solidity 0.8.20, hash-linked chain of custody |
+| **U** | **Unified** | One unified governance plane: identity, cases, evidence, and compliance policy |
+| **R** | **Risk-audit** | Deterministic AML/KYC rule enforcement + smart contract risk auditing |
+| **H** | **Heuristics** | ML anomaly scoring (Isolation Forest) + financial forensic heuristics |
+| **A** | **AML** | CBI Law No. 39 / FATF compliance, structuring & smurfing detection |
+| **N** | **Network-forensics** | Wallet network tracing, insider-collusion graph, digital chain of custody |
+
+<br/>
 
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.20-363636?style=for-the-badge&logo=solidity)](https://soliditylang.org/)
 [![Hardhat](https://img.shields.io/badge/Hardhat-2.22-yellow?style=for-the-badge&logo=ethereum)](https://hardhat.org/)
@@ -9,46 +37,59 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python)](https://python.org)
 [![React](https://img.shields.io/badge/React-18.x-61DAFB?style=for-the-badge&logo=react)](https://react.dev/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
-[![Vite](https://img.shields.io/badge/Vite-5.x-646CFF?style=for-the-badge&logo=vite)](https://vitejs.dev/)
 
-[![Tests](https://img.shields.io/badge/Tests-490%2B_Passing-brightgreen?style=for-the-badge)](./test)
+[![Tests](https://img.shields.io/badge/Tests-492%2B_Passing-brightgreen?style=for-the-badge)](./test)
 [![Coverage](https://img.shields.io/badge/Contract_Coverage-100%25-brightgreen?style=for-the-badge)](./audit-report/SECURITY_AUDIT.md)
 [![Security](https://img.shields.io/badge/Security-Audited_%26_Remediated-blue?style=for-the-badge&logo=shield)](./audit-report/SECURITY_AUDIT.md)
 [![Compliance](https://img.shields.io/badge/Compliance-CBI_Law_39%2F2015_%26_FATF-gold?style=for-the-badge)](./docs/architecture.md)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](./LICENSE)
 
-**A Hybrid Blockchain & AI-Powered Continuous Audit Ledger for Banking Compliance & Internal Fraud Mitigation**  
-*Built for the Iraqi Banking & Fintech Ecosystem (Central Bank of Iraq Compliance)*
-
-[Architecture](./docs/architecture.md) • [Defense Presentation](./docs/defense-presentation.md) • [Security Audit](./audit-report/SECURITY_AUDIT.md) • [Smart Contracts](./contracts) • [AI Engine](./ai-engine) • [Frontend](./frontend)
+[Architecture](./docs/architecture.md) • [Defense Presentation](./docs/defense-presentation.md) • [Security Audit](./audit-report/SECURITY_AUDIT.md) • [API Reference](./docs/api-reference.md) • [Threat Model](./docs/threat-model.md)
 
 </div>
 
 ---
 
-## 📋 Overview
+## 📖 Overview | نظرة عامة
 
-**Iraq AML Cyber-Audit Chain** is an enterprise-grade, hybrid cyber-auditing and digital forensic platform that bridges the gap between **Financial Forensic Accounting**, **Digital Forensics**, and **Machine Intelligence**.
+**BURHAN (بُرهان)** is an enterprise-grade hybrid cyber-auditing and digital-forensic platform that bridges **Financial Forensic Accounting**, **Digital Forensics**, and **Machine Intelligence** into a single auditable system.
 
-Traditional financial auditing relies heavily on retrospective periodic sampling, manual spreadsheet reviews, and centralized ERP databases — leaving institutions acutely vulnerable to **authorized insider threats** (e.g., auditors, compliance managers, and privileged operators) who exploit administrative access to override Anti-Money Laundering (AML) controls, manipulate system logs, or collude in illicit transfers.
+> **بُرهان** — المنظومة الموحدة التي تدمج المحاسبة المالية الجنائية، والتحقيق الجنائي الرقمي، والذكاء الاصطناعي، في مسار تدقيق واحد قابل للإثبات أمام القضاء.
 
-This platform resolves the insider threat dilemma by enforcing **cryptographic Zero-Trust governance** across three integrated tiers:
-1. **On-Chain Cryptographic Consensus (Solidity `^0.8.20`)**: Guarantees deterministic AML/KYC rule enforcement, multi-signature 4-eyes controls, separation of duties, and an append-only, tamper-evident forensic chain of custody.
-2. **Off-Chain AI Reasoning Engine (FastAPI & Machine Learning)**: Provides pre-execution fraud scoring (Isolation Forest + heuristics), structuring/smurfing pattern detection, operator behavioral profiling, and AST-based smart contract backdoor audits.
-3. **Presentation & Forensic Telemetry (React 18 + Vite + Tailwind CSS)**: High-performance, bilingual (Arabic RTL & English LTR) judicial telemetry console featuring 7 investigative modules and verifiable PDF/print forensic dossiers.
+Traditional financial auditing relies on retrospective periodic sampling, manual spreadsheet reviews, and centralized ERP databases — leaving institutions acutely vulnerable to **authorized insider threats** (auditors, compliance managers, privileged operators) who exploit administrative access to override AML controls, manipulate system logs, or collude in illicit transfers.
+
+BURHAN resolves the insider-threat dilemma by enforcing **cryptographic Zero-Trust governance** across three integrated tiers:
+
+1. **On-Chain Cryptographic Consensus** (Solidity `^0.8.20`) — deterministic AML/KYC rule enforcement, multi-signature 4-eyes controls, separation of duties, and an append-only tamper-evident forensic chain of custody.
+2. **Off-Chain AI Reasoning Engine** (FastAPI + ML) — pre-execution fraud scoring (Isolation Forest + heuristics), structuring/smurfing detection, operator behavioral profiling, and AST-based smart contract backdoor auditing.
+3. **Forensic Telemetry Console** (React 18 + Vite + Tailwind) — bilingual (Arabic RTL / English LTR) judicial console with 7 investigative modules and verifiable forensic dossiers.
 
 ---
 
-## 🏛️ Tri-Tier Architecture
+## 🖼️ Interface Preview | واجهة النظام
+
+<div align="center">
+
+**Executive Overview — English (LTR)**
+<img src="./docs/assets/burhan-dashboard-en.png" alt="BURHAN Executive Overview — English interface" width="100%" />
+
+**لوحة القيادة التنفيذية — العربية (RTL)**
+<img src="./docs/assets/burhan-dashboard-ar.png" alt="BURHAN Executive Overview — Arabic interface" width="100%" />
+
+</div>
+
+---
+
+## 🏛️ Tri-Tier Architecture | المعمارية ثلاثية الطبقات
 
 ```
 +-----------------------------------------------------------------------------------+
-|                       TIER 3: PRESENTATION & TELEMETRY LAYER                      |
-|     React 18 + Vite + Tailwind CSS 3.4 | Dark Glassmorphic Cyber Interface       |
-|     Bilingual (Arabic RTL / English LTR) | 7 Specialized Forensic Modules         |
+|                    TIER 3: PRESENTATION & FORENSIC TELEMETRY                      |
+|     React 18 + Vite + Tailwind CSS 3.4 | Dark Glassmorphic Cyber Interface        |
+|     Bilingual (Arabic RTL / English LTR) | 7 Specialized Forensic Modules        |
 +-----------------------------------------------------------------------------------+
                                     |               |
-                         JSON-RPC   |               | REST / OpenAPI v2
+                         JSON-RPC   |               | REST / OpenAPI v2 + v3
                          WebSockets |               | (Port 8000)
                                     v               v
 +-----------------------------------------------------------------------------------+
@@ -59,8 +100,7 @@ This platform resolves the insider threat dilemma by enforcing **cryptographic Z
 |  - Bilingual Judicial Dossier Generator      - Continuous Blockchain Event Sync   |
 +-----------------------------------------------------------------------------------+
                                     |
-                           Smart Contract Calls
-                           & Event Emission
+                           Smart Contract Calls & Event Emission
                                     v
 +-----------------------------------------------------------------------------------+
 |                  TIER 1: ON-CHAIN IMMUTABLE CRYPTOGRAPHIC CONSENSUS               |
@@ -76,223 +116,194 @@ This platform resolves the insider threat dilemma by enforcing **cryptographic Z
 
 ---
 
-## ✨ Key Features & Capabilities
+## ✨ Key Capabilities | القدرات الأساسية
 
 ### 1. On-Chain Smart Contract Core (`contracts/`)
-- **Deterministic AML/KYC Rule Enforcement**: Automatically flags or blocks suspicious transfers based on Central Bank of Iraq (CBI) thresholds and FATF recommendations.
-- **Cryptographic Chain of Custody (`ForensicTrail.sol`)**: Maintains a lightweight, recursively hashed header chain of all security and audit events:
-  $$	ext{EntryHash}_n = 	ext{keccak256}\Big(n, 	ext{Timestamp}, 	ext{IncidentType}, 	ext{Operator}, 	ext{Actor}, 	ext{EvidenceHash}, 	ext{EntryHash}_{n-1}\Big)$$
-  Any off-chain tampering immediately breaks mathematical continuity, detectable via `verifyChainIntegrity()`.
-- **Insider Threat Activity Logging (`InsiderActivityLog.sol`)**: Autonomous on-chain accounting of operator behaviors, including after-hours operations (outside 08:00–17:00), repeated AML warning overrides, and beneficiary concentration.
-- **Separation of Duties (SoD)**: Cryptographically prohibits transacting parties (sender or receiver) from overriding, clearing, or adjudicating their own transactions.
-- **Four-Eyes Principle (`MultiSigApproval.sol`)**: High-risk operations (unpausing after an emergency stop, overriding AML warnings, modifying compliance rules) mandate dual-control multi-signature approval ($M$-of-$N$ quorum, $M \ge 2$) from distinct enrolled identities.
-- **Timelocked Governance**: Sensitive policy parameter changes require an enforced timelock period (24 hours / 86,400s) to prevent hasty or unauthorized administrative modifications.
+
+| Capability | Implementation | Forensic value |
+|:---|:---|:---|
+| Deterministic AML/KYC rules | `AuditEngine.sol` + `ComplianceRules.sol` | Non-bypassable regulatory thresholds |
+| Chain of custody | `ForensicTrail.sol` | `EntryHashₙ = keccak256(n, ts, type, operator, actor, evidenceHash, EntryHashₙ₋₁)` |
+| Insider telemetry | `InsiderActivityLog.sol` | After-hours ops, override sprees, beneficiary concentration |
+| Separation of Duties | Governance coordinator | Actors cannot vote/clear their own transactions |
+| Four-Eyes control | `MultiSigApproval.sol` | $M$-of-$N$ quorum ($M \ge 2$) for every high-risk action |
+| Timelocked governance | 24h / 86,400s timelock | Prevents hasty unauthorized policy mutation |
 
 ### 2. Off-Chain AI Reasoning Engine (`ai-engine/`)
-- **Multi-Factor Fraud Detection**: Combines Machine Learning (Isolation Forest anomaly scores) with financial accounting heuristics:
-  - **Structuring / Smurfing**: Flags intentional transaction slicing just below reporting ceilings ($[0.85 	imes 	ext{Limit}, 	ext{Limit})$).
-  - **Velocity Spikes**: Tracks 24-hour volume bursts and transaction frequency anomalies.
-  - **KYC Verification**: Evaluates sender and counterparty verification states.
-- **Insider Threat Behavioral Profiler**: Computes risk coefficients on bank personnel, flagging anomalous access patterns, sub-10-second rapid approvals, and unauthorized override sprees.
-- **Solidity Backdoor Auditor**: Analyzes smart contract source code using Abstract Syntax Trees (AST) and security heuristics to detect insider-planted backdoors (e.g., `tx.origin` phishing CWE-287, arbitrary `selfdestruct` CWE-284, reentrancy vulnerabilities CWE-829, unbounded minting).
-- **Bilingual Forensic Dossier Generator**: Generates court-admissible forensic reports in Arabic and English, complete with cryptographic Merkle proof hashes, timestamping, and regulatory audit notes.
 
-### 3. Judicial Telemetry & Web Dashboard (`frontend/`)
-- **Bilingual Design**: Native Arabic (RTL) and English (LTR) modes tailored for Iraqi banking compliance officers, Central Bank observers, and judicial authorities.
-- **7 Investigative Modules**:
-  1. `Dashboard`: Real-time transaction flow, AML status breakdown, high-velocity alerts, and key performance indicators.
-  2. `Case Workspace`: End-to-end incident lifecycle management and evidence chain tracking.
-  3. `Insider Threat Monitor`: Operator threat score matrix, override counters, and simulated collusion detection.
-  4. `Forensic Explorer`: Interactive visual chain of custody timeline with live hash verification and tamper-detection simulations.
-  5. `AI Risk Scoring Panel`: Real-time pre-execution scoring simulator and structuring detection alerts.
-  6. `Smart Contract Auditor`: Automated backdoor scanner with sample contracts and vulnerability breakdowns.
-  7. `Governance & MultiSig`: Dual-control proposal submission, 4-eyes voting queue, and RBAC directory.
+- **Multi-Factor Fraud Detection** — ML (Isolation Forest) fused with forensic-accounting heuristics.
+  - *Structuring / Smurfing*: slices inside $[0.85 \times \text{Limit},\ \text{Limit})$.
+  - *Velocity spikes*: 24h volume bursts and frequency anomalies.
+  - *KYC state*: sender and counterparty verification.
+- **Insider Threat Behavioral Profiler** — risk coefficients per operator: anomalous access patterns, sub-10-second approvals, override sprees.
+- **Solidity Backdoor Auditor** — AST + heuristic scan for insider-planted backdoors (`tx.origin` CWE-287, arbitrary `selfdestruct` CWE-284, reentrancy CWE-829, unbounded minting).
+- **Bilingual Forensic Dossier Generator** — court-admissible reports (AR/EN) with Merkle proofs and timestamps.
 
----
+### 3. Forensic Telemetry Console (`frontend/`)
 
-## ⚖️ Regulatory Compliance Matrix
-
-Aligned with **Central Bank of Iraq (CBI) Anti-Money Laundering and Counter-Terrorism Financing Law No. 39 of 2015** and **FATF 40 Recommendations**:
-
-| Compliance Parameter | Rule / Regulatory Reference | Threshold | System Action | Governance Enforcement |
-|---|---|---|---|---|
-| **Large Transaction (CTR)** | AML Law No. 39 (Art. 12) / FATF Rec. 10 | > 10,000 ETH / IQD Equiv. | Flag for Mandatory Review | Auto-record in `ForensicTrail` |
-| **KYC Mandate** | Central Bank of Iraq KYC Regulations | > 5,000 ETH / IQD Equiv. | Block if Unverified | Enforce Verified Identity Status |
-| **Daily Velocity Cap** | Structuring & Velocity Monitoring | > 50,000 ETH/day | Flag Account & Freeze Outflow | Require MultiSig Audit Override |
-| **Structuring (Smurfing)** | FATF Recommendation 20 (STRs) | 85% - 99.9% of Threshold | Flag as Structuring Anomaly | AI Score Adjustment (+35 pts) |
-| **Max Single Transfer** | Absolute Hard Stop | 100,000 ETH / Equiv. | Immediate Hard Revert | Cryptographically Non-Bypassable |
-| **Warning Override** | Four-Eyes Control Principle | Operator Override Request | Require MultiSig Approval | $M$-of-$N$ Quorum ($M \ge 2$) |
+1. `Dashboard` — transaction flow, AML disposition, high-velocity alerts, KPI telemetry.
+2. `Case Workspace` — incident lifecycle and evidence-chain tracking.
+3. `Insider Threat Monitor` — operator threat matrix, override counters, collusion detection.
+4. `Forensic Explorer` — visual chain of custody with live hash verification and tamper simulation.
+5. `AI Risk Scoring Panel` — pre-execution scoring simulator and structuring alerts.
+6. `Smart Contract Auditor` — backdoor scanner with sample vulnerable contracts.
+7. `Governance & MultiSig` — dual-control proposals, 4-eyes voting queue, RBAC directory.
 
 ---
 
-## 📂 Repository Structure
+## ⚖️ Regulatory Compliance Matrix | مصفوفة الامتثال
+
+Aligned with **Central Bank of Iraq AML/CFT Law No. 39 of 2015** and the **FATF 40 Recommendations**.
+
+| Parameter | Reference | Threshold | System action | Enforcement |
+|:---|:---|:---|:---|:---|
+| **Large Transaction (CTR)** | AML Law No. 39 (Art. 12) / FATF Rec. 10 | > 10,000 ETH equiv. | Flag for mandatory review | Auto-record in `ForensicTrail` |
+| **KYC Mandate** | CBI KYC Regulations | > 5,000 ETH equiv. | Block if unverified | Enforce verified identity |
+| **Daily Velocity Cap** | Structuring & velocity monitoring | > 50,000 ETH/day | Flag + freeze outflow | MultiSig audit override |
+| **Structuring (Smurfing)** | FATF Rec. 20 (STRs) | 85%–99.9% of threshold | Flag as structuring | AI score +35 pts |
+| **Max Single Transfer** | Absolute hard stop | 100,000 ETH equiv. | Immediate hard revert | Cryptographically non-bypassable |
+| **Warning Override** | Four-Eyes principle | Any override request | Require MultiSig approval | $M$-of-$N$ quorum ($M \ge 2$) |
+
+---
+
+## 📂 Repository Structure | هيكل المستودع
 
 ```text
-iraq-aml-audit-chain/
-├── contracts/                          # Solidity 0.8.20 Smart Contracts
+burhan/
+├── contracts/                          # Solidity 0.8.20 smart contracts
 │   ├── AuditEngine.sol                 # Core AML compliance & audit engine
-│   ├── ComplianceRules.sol             # Regulatory policy constants & thresholds
+│   ├── ComplianceRules.sol             # Regulatory thresholds
 │   ├── access/
-│   │   ├── RoleManager.sol             # Hierarchical RBAC & identity roster
-│   │   └── MultiSigApproval.sol        # Four-Eyes dual-control approval system
+│   │   ├── RoleManager.sol             # Hierarchical RBAC
+│   │   └── MultiSigApproval.sol        # Four-eyes dual control
 │   ├── forensics/
-│   │   ├── ForensicTrail.sol           # Immutable hash-linked chain of custody
+│   │   ├── ForensicTrail.sol           # Hash-linked chain of custody
 │   │   └── InsiderActivityLog.sol      # Behavioral operator telemetry
-│   ├── libraries/
-│   │   └── EvidenceHashing.sol         # Canonical V2 evidence hashing library
-│   └── interfaces/                     # Contract interfaces (IAuditEngine, etc.)
-├── ai-engine/                          # Python 3.11+ AI Reasoning Microservice
+│   ├── libraries/EvidenceHashing.sol   # Canonical V2 evidence hashing
+│   └── interfaces/                     # Contract interfaces
+├── ai-engine/                          # Python 3.11+ AI reasoning service
 │   ├── app/
-│   │   ├── main.py                     # FastAPI application entry point
-│   │   ├── models/
-│   │   │   ├── fraud_detector.py       # Multi-factor ML & heuristic fraud model
-│   │   │   └── insider_analyzer.py     # Operator threat scoring model
-│   │   ├── routes/                     # REST API endpoints (v2, v3, forensics)
-│   │   └── services/                   # LLM synthesis & event listeners
-│   └── tests/                          # 220+ API, ML, and integration tests
-├── frontend/                           # React 18 + Vite + Tailwind CSS Console
-│   ├── src/
-│   │   ├── components/                 # 7 Specialized forensic & audit modules
-│   │   ├── hooks/                      # Web3 and state management hooks
-│   │   ├── config/                     # Dynamic runtime schema configuration
-│   │   └── locales/                    # Bilingual translations (Arabic / English)
-│   └── dist/                           # Optimized production build
-├── deployments/                        # Verified deployment manifests & schemas
-├── scripts/                            # Automation, deployment, and verification
-│   ├── deploy.js                       # Hardhat multi-contract orchestrator
-│   ├── simulate-fraud-case.js          # Interactive AML attack simulation
-│   └── verify-deployment.js            # Deployment integrity verification
-├── docs/                               # Technical & Academic Documentation
-│   ├── architecture.md                 # In-depth architectural specification
-│   └── defense-presentation.md         # Academic defense presentation deck
-├── audit-report/                       # Security Audits & Remediation Register
-│   └── SECURITY_AUDIT.md               # Formal vulnerability audit report
-├── hardhat.config.js                   # Hardhat network & compiler configuration
-├── package.json                        # Monorepo dependencies & scripts
-└── README.md                           # Master project documentation
+│   │   ├── main.py                     # FastAPI entry point
+│   │   ├── models/                     # Fraud detector, insider analyzer
+│   │   ├── routes/                     # REST v2 / v3 / forensics
+│   │   └── services/                   # Evidence, chain, signing, backup
+│   └── tests/                          # 221 API / ML / integration tests
+├── frontend/                           # React 18 + Vite + Tailwind console
+│   ├── src/components/                 # 7 forensic & audit modules
+│   ├── src/config/                     # Strict runtime schema
+│   └── src/utils/i18n.js               # Arabic / English translations
+├── deployments/                        # Verified deployment manifests
+├── scripts/                            # Deploy, verify, simulate, screenshot
+├── docs/                               # Architecture, threat model, runbooks
+│   └── assets/                         # Interface screenshots
+├── audit-report/SECURITY_AUDIT.md      # Formal vulnerability audit
+├── hardhat.config.js
+└── package.json
 ```
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Quick Start | التشغيل السريع
 
-### Prerequisites
-- **Node.js**: `>= 18.0.0` (LTS recommended)
-- **npm**: `>= 9.0.0`
-- **Python**: `>= 3.11.0`
-- **Git**
-
-### 1. Clone & Install Dependencies
+**Prerequisites:** Node.js ≥ 18, npm ≥ 9, Python ≥ 3.11, Git
 
 ```bash
-# Clone repository
-git clone https://github.com/H0777/iraq-aml-audit-chain.git
-cd iraq-aml-audit-chain
+# 1. Clone
+git clone https://github.com/H0777/burhan.git
+cd burhan
 
-# Install root & contract dependencies
+# 2. Install
 npm install
+npm --prefix frontend install
+pip install -r ai-engine/requirements.txt
 
-# Install frontend dependencies
-cd frontend && npm install && cd ..
-
-# Install AI engine dependencies
-cd ai-engine && pip install -r requirements.txt && cd ..
-```
-
-### 2. Compile & Test Smart Contracts
-
-```bash
-# Compile Solidity contracts
+# 3. Compile & test contracts
 npx hardhat compile
-
-# Run complete contract test suite (206 passing)
 npx hardhat test
 
-# Generate code coverage report (100% coverage)
-npx hardhat coverage
-```
-
-### 3. Launch Local Blockchain & Deploy
-
-```bash
-# Terminal 1: Start local Hardhat EVM node
+# 4. Start local chain (terminal 1)
 npx hardhat node
 
-# Terminal 2: Deploy and bootstrap contracts
+# 5. Deploy contracts (terminal 2)
 npm run deploy:local
+
+# 6. Run the AI engine (terminal 3)
+cd ai-engine && uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 7. Run the console (terminal 4)
+npm --prefix frontend run dev    # http://localhost:5173
 ```
-
-### 4. Run the AI Reasoning Engine
-
-```bash
-cd ai-engine
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 5. Launch the Forensic Dashboard
-
-```bash
-cd frontend
-npm run dev
-```
-Open your browser at `http://localhost:5173` to access the interactive audit console.
 
 ---
 
-## 🧪 Test Suites & Verification Gates
-
-The project enforces strict verification gates across all layers with **over 490 automated tests**:
+## 🧪 Verification Gates | بوابات التحقق
 
 ```bash
-# Run full verification suite across all subsystems
-npm run verify:all
+npm run verify:all      # contracts + api + frontend + integration
 ```
 
-### Test Coverage Summary
-| Subsystem | Test Framework | Test Count | Pass Rate | Coverage |
-|---|---|---|---|---|
-| **Smart Contracts** | Hardhat / Mocha / Chai | **206 Tests** | 100% | **100% Lines & Branches** |
-| **AI Engine & API** | PyTest / FastAPI TestClient | **221 Tests** | 100% | High Precision / Parity |
-| **Frontend Dashboard** | Vitest / React Testing Library | **65 Tests** | 100% | Component & Auth Validated |
-| **Total Verified** | Multi-Layer Integration | **492+ Tests** | **100%** | **Production Grade** |
+| Subsystem | Framework | Tests | Status |
+|:---|:---|---:|:---:|
+| Smart Contracts | Hardhat / Mocha / Chai | **206** | ✅ 100% |
+| AI Engine & API | PyTest / FastAPI TestClient | **221** | ✅ 100% |
+| Frontend Console | Vitest / React Testing Library | **65** | ✅ 100% |
+| Trust-flow E2E | Playwright | **8** | ✅ 100% |
+| **Total** | Multi-layer integration | **500** | ✅ **100%** |
 
 ---
 
-## 🔒 Security Audit & Remediations
+## 🔒 Security Remediation Register | سجل المعالجة الأمنية
 
-The codebase has undergone extensive security reviews and formal verification against typical smart contract vulnerabilities and insider exploit vectors.
+| ID | Finding | Remediation | Status |
+|:---:|:---|:---|:---:|
+| F01 | Test mutator backdoor in production ABI | Backdoor removed from ABI/bytecode (R01) | ✅ |
+| F02 | Wallet recycling / duplicate enrollment | Immutable identity binding + rotation (R02) | ✅ |
+| F03 | Self-adjudication of own transactions | Separation of Duties enforced (R03) | ✅ |
+| F04 | Contract size over EIP-170 | 24,000 B runtime budget gate (R04) | ✅ |
+| F05 | Unverifiable dossier manifests | Standalone offline verifier CLI (R09) | ✅ |
+| F06 | Outbox delivery without crash recovery | Leased outbox + nonce discipline (R08) | ✅ |
+| F07 | Case transitions without CAS | SQL compare-and-swap + idempotency (R12) | ✅ |
+| F09 | Silent runtime-config fallback | Strict schema, fail-closed mount (R13) | ✅ |
+| F11 | Replayable stale unpause proposals | Epoch-protected emergency pause (R14) | ✅ |
+| F12 | Backups without tamper evidence | Encrypted backups + integrity chain (R16) | ✅ |
+| F14 | Missing end-to-end trust-flow proof | 8/8 Playwright E2E acceptance (R19–R21) | ✅ |
 
-**Key Remediations Implemented (F01 - F14):**
-- **Zero Backdoor Guarantee (F01/R01)**: Fully eliminated test mutator backdoors from production ABIs and bytecode.
-- **Immutable Identity Binding (F02/R02)**: Prevented wallet recycling and duplicate enrollments; guaranteed generation monotonicity.
-- **Separation of Duties (F03/R03)**: Strictly blocked actors from voting on or clearing transactions involving their own addresses.
-- **Bytecode Budget Enforcement (F04/R04)**: All contracts conform strictly to the EIP-170 code size ceiling ($< 24,576$ bytes).
-- **Tamper-Evident Manifest Verification (F05/R09)**: Built standalone offline verification tool for AML dossier manifests.
-- **Epoch-Protected Emergency Pause (F11/R14)**: Prevented replay of stale unpause proposals across multiple circuit breaker cycles.
-
-For the complete audit findings, see [SECURITY_AUDIT.md](./audit-report/SECURITY_AUDIT.md).
+Full register: [`docs/verification/remediation/findings.csv`](./docs/verification/remediation/findings.csv) · Formal audit: [`audit-report/SECURITY_AUDIT.md`](./audit-report/SECURITY_AUDIT.md)
 
 ---
 
-## 👨‍💻 Research & Academic Attribution
+## 🗺️ Documentation | التوثيق
 
-**Hussein Faez**  
-*Specialization:* Digital Forensics, Cybersecurity & Financial Accounting  
-*Country:* Republic of Iraq  
-*GitHub:* [@H0777](https://github.com/H0777)  
+| Document | Description |
+|:---|:---|
+| [Architecture](./docs/architecture.md) | Tri-tier system design and data flows |
+| [Threat Model](./docs/threat-model.md) | Adversary model and trust boundaries |
+| [Trust Boundary & Identity](./docs/trust-boundary-identity.md) | OIDC identity, wallet binding |
+| [API Reference](./docs/api-reference.md) | OpenAPI v2/v3 surface |
+| [Key Management Runbook](./docs/runbooks/key-management.md) | Ed25519 custody and rotation |
+| [Defense Presentation](./docs/defense-presentation.md) | Academic defense deck |
+| [Security Audit](./audit-report/SECURITY_AUDIT.md) | Findings and remediation evidence |
+| [Remediation Evidence](./docs/verification/remediation) | Per-lane verified evidence (R01–R21) |
 
-> **Academic Thesis / Research Project:**  
-> *"Integrating Digital Forensics and Financial Accounting: A Cyber-Auditing System for Mitigating Insider Threat Fraud"*  
-> Combining distributed ledger technology, machine learning, and forensic accounting principles to protect sovereign and commercial banking infrastructure against authorized insider threats.
+---
+
+## 👨‍💻 Author & Academic Attribution
+
+**Hussein Faez** — *Digital Forensics, Cybersecurity & Financial Accounting* — Republic of Iraq 🇮🇶
+GitHub: [@H0777](https://github.com/H0777)
+
+> **Academic Thesis / Research Project**
+> *"Integrating Digital Forensics and Financial Accounting: A Cyber-Auditing System for Mitigating Insider Threat Fraud"*
+> Combining distributed ledger technology, machine learning, and forensic accounting to protect sovereign and commercial banking infrastructure against authorized insider threats.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
+MIT — see [LICENSE](./LICENSE).
 
 <div align="center">
 
-**Built with pride for the development and security of the Iraqi Banking Sector 🇮🇶**
+**BURHAN | بُرهان** — Built for the security of the Iraqi Banking Sector 🇮🇶
 
 </div>

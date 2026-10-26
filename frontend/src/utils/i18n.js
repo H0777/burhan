@@ -1,10 +1,13 @@
 export const translations = {
   ar: {
     // Brand & Header
-    systemTitle: 'نظام التدقيق السيبراني والتحقيق الجنائي الرقمي',
-    systemSubtitle: 'دمج التحقيق الجنائي الرقمي والمحاسبة المالية لمكافحة الاحتيال الداخلي في القطاع المصرفي',
+    systemTitle: 'بُرهان | BURHAN — المنظومة الموحدة لتقييم المخاطر والتحريات الجنائية',
+    systemSubtitle: 'تحليل سلاسل الكتل، والتدقيق الاستدلالي، والتحريات الجنائية لمكافحة غسل الأموال',
     projectScope: 'جمهورية العراق — البنك المركزي العراقي (CBI) | وحدة التحريات المالية',
-    version: 'الإصدار 2.5 المؤسسي',
+    version: 'بُرهان — الإصدار المؤسسي 2.5',
+    brandName: 'بُرهان',
+    brandLatin: 'BURHAN',
+    brandExpansion: '[B]lockchain • [U]nified • [R]isk-Audit • [H]euristics • [A]ML • [N]etwork-Forensics',
     newTransaction: 'معاملة مالية جديدة',
     refreshLedger: 'تحديث سجل البلوكشين',
     connectWallet: 'ربط المحفظة الرقمية',
@@ -135,10 +138,13 @@ export const translations = {
 
   en: {
     // Brand & Header
-    systemTitle: 'Cyber-Auditing & Digital Forensics System',
-    systemSubtitle: 'Integrating Digital Forensics & Financial Accounting to Mitigate Banking Insider Fraud',
+    systemTitle: 'BURHAN — Blockchain Unified Risk-audit, Heuristic AML & Network-forensics',
+    systemSubtitle: 'Unified risk assessment, heuristic auditing, and AML network forensics',
     projectScope: 'Republic of Iraq — Central Bank of Iraq (CBI) | AML/CFT Bureau',
-    version: 'Enterprise Edition v2.5',
+    version: 'BURHAN — Enterprise v2.5',
+    brandName: 'BURHAN',
+    brandLatin: 'BURHAN',
+    brandExpansion: '[B]lockchain • [U]nified • [R]isk-Audit • [H]euristics • [A]ML • [N]etwork-Forensics',
     newTransaction: 'New Transfer',
     refreshLedger: 'Refresh Ledger',
     connectWallet: 'Connect Wallet',
