@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iraq-aml-audit-chain/schemas/dossier-manifest-v1.schema.json",
+  "title": "AML Dossier Manifest Signed Envelope v1",
+  "description": "SignedEnvelope for domain AML_DOSSIER_V1 (spec section 6). The signature is Ed25519 over domain + NUL + canonical JSON of body (UTF-8, sort_keys=True, separators=(',',':'), ensure_ascii=False, allow_nan=False; no floats, no duplicate keys, no Unicode normalization). Verification uses ONLY the external trust registry entry matching (body.institution_id, body.key_id); key material embedded in the envelope is never trusted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["body", "algorithm", "signature"],
+  "properties": {
+    "body": {
+      "type": "object",
+      "required": ["institution_id", "key_id", "schema_version", "report_id", "case_id", "case_number", "generated_at", "files"],
+      "additionalProperties": true,
+      "properties": {
+        "institution_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "schema_version": { "const": 1 },
+        "report_id": { "type": "string", "minLength": 1 },
+        "case_id": { "type": "string", "minLength": 1 },
+        "case_number": { "type": "string", "minLength": 1 },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "required": ["path", "sha256", "size"],
+            "additionalProperties": true,
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+              "size": { "type": "integer", "minimum": 0, "maximum": 26214400 },
+              "evidence_id": { "type": "string" }
+            }
+          }
+        },
+        "verification_snapshot": {
+          "type": ["object", "null"],
+          "properties": {
+            "snapshot_id": { "type": "string" },
+            "chain_id": { "type": "integer" },
+            "block_number": { "type": "integer" },
+            "block_hash": { "type": "string" },
+            "head_entry_hash": { "type": "string" },
+            "evidence_count": { "type": "integer" },
+            "status": { "type": "string" }
+          }
+        }
+      }
+    },
+    "algorithm": { "const": "Ed25519" },
+    "signature": {
+      "type": "string",
+      "description": "base64 (standard alphabet) of the 64-byte Ed25519 signature over domain + NUL + canonical_bytes(body).",
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+      "minLength": 1
+    }
+  }
+}
