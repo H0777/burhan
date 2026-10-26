@@ -192,3 +192,96 @@ def test_v2_verify_endpoint_http():
     finally:
         set_rpc_provider(None)
 
+
+# ===========================================================================
+# R07 conversion (spec §5): V2 410 in institutional mode; V3 request/result
+# schema contract (tri-state status, string ids, no browser chain fields).
+# ===========================================================================
+
+def test_v2_verify_institutional_410_with_v3_pointer():
+    """In institutional mode the old V2 verify (browser-supplied entries) is
+    GONE: 410 + a pointer to /api/v3/evidence/verify."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.config import settings
+
+    old_mode, old_oidc = settings.APP_MODE, settings.OIDC_ENABLED
+    settings.APP_MODE = "institutional"
+    settings.OIDC_ENABLED = True
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        res = client.post(
+            "/api/v2/evidence/verify",
+            json={"incidentId": 1, "schemaVersion": 2, "chainId": 1337,
+                  "contractAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+                  "entries": []},
+        )
+        assert res.status_code == 410
+        assert "/api/v3/evidence/verify" in res.json().get("detail", "")
+    finally:
+        settings.APP_MODE = old_mode
+        settings.OIDC_ENABLED = old_oidc
+
+
+def test_v2_verify_demo_mode_still_answers():
+    """Demo mode keeps the local computation tool (non-official provenance)."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.routes.v2.evidence import set_rpc_provider
+    from app.config import settings
+
+    assert settings.APP_MODE.strip().lower() == "demo"
+    entries = create_sample_entries()
+    mock_rpc = MockRpcClient(
+        incident_exists=True,
+        on_chain_entries=[e.model_dump() for e in entries],
+        is_writer_authorized=True,
+    )
+    set_rpc_provider(mock_rpc)
+    try:
+        client = TestClient(app)
+        res = client.post(
+            "/api/v2/evidence/verify",
+            json={"incidentId": 1, "schemaVersion": 2, "chainId": 1337,
+                  "contractAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+                  "entries": [e.model_dump(by_alias=True) for e in entries]},
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "verified"
+    finally:
+        set_rpc_provider(None)
+
+
+def test_v3_request_schema_rejects_browser_chain_fields():
+    from app.schemas.evidence import VerifyEvidenceRequest
+    from pydantic import ValidationError
+    import pytest as _pytest
+
+    with _pytest.raises(ValidationError):
+        VerifyEvidenceRequest(case_id="c", evidence_ids=["e1"], chain_id=31337)
+    with _pytest.raises(ValidationError):
+        VerifyEvidenceRequest(case_id="c", evidence_ids=["e1"], contract_address="0x1234")
+    with _pytest.raises(ValidationError):
+        VerifyEvidenceRequest(case_id="c", evidence_ids=["e1"], entries=[])
+    with _pytest.raises(ValidationError):
+        VerifyEvidenceRequest(case_id="c", evidence_ids=[])
+    with _pytest.raises(ValidationError):
+        VerifyEvidenceRequest(case_id="c", evidence_ids=["e1", "e1"])  # duplicates
+    ok = VerifyEvidenceRequest(case_id="c", evidence_ids=["e1", "e2"])
+    assert ok.evidence_ids == ["e1", "e2"]
+    assert ok.snapshot_id is None
+
+
+def test_v3_result_status_is_tri_state_and_ids_are_strings():
+    from app.schemas.evidence import VerificationResult
+    from pydantic import ValidationError
+    import pytest as _pytest
+
+    r = VerificationResult(status="verified", reasons=[], snapshot_id="vs_1",
+                           checked_evidence_ids=["ev1"], deployment_id="0xd")
+    assert r.status == "verified"
+    with _pytest.raises(ValidationError):
+        VerificationResult(status="maybe")  # only the three literal states
+    # on-chain uint256 surface as decimal STRINGS, never JS-lossy numbers
+    assert all(isinstance(e, str) for e in r.checked_evidence_ids)
+

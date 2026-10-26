@@ -84,7 +84,21 @@ async def verify_evidence_endpoint(payload: EvidenceVerificationRequest):
     """
     Independently verifies an Evidence V2 payload against cryptographic hashing rules
     and on-chain anchor consensus.
+
+    R07 (spec §5): in institutional deployments this V2 browser-supplied-entries
+    endpoint is GONE (410) — verification moved to POST /api/v3/evidence/verify,
+    which accepts identifiers only and reads the chain itself. The demo mode
+    keeps a local computation tool (provenance_status stays non-official there).
     """
+    if settings.APP_MODE.strip().lower() == "institutional":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=(
+                "Evidence verification moved to POST /api/v3/evidence/verify "
+                "(V3 accepts case_id and evidence_ids only; entries, chain_id and "
+                "contract_address are never accepted from the browser)"
+            ),
+        )
     rpc_client = get_rpc_provider()
     result = verify_evidence(payload, rpc_client=rpc_client)
     return result
