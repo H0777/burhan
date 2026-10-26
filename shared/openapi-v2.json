@@ -1959,6 +1959,96 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VerificationResult": {
+        "additionalProperties": false,
+        "description": "Verification outcome — status is strictly tri-state; `unavailable` is\nnever mixed with `verified`. Reason codes (stable strings) live in\n`reasons` (e.g. snapshot_reorged, historical_logs_unavailable,\nlegacy_unattested, chain_generated_unattested,\nhistorical_key_time_unproven).",
+        "properties": {
+          "checkedEvidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checkedevidenceids",
+            "type": "array"
+          },
+          "deploymentId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deploymentid"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "snapshotId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshotid"
+          },
+          "status": {
+            "enum": [
+              "verified",
+              "invalid",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "VerificationResult",
+        "type": "object"
+      },
+      "VerifyEvidenceRequest": {
+        "additionalProperties": false,
+        "description": "POST /api/v3/evidence/verify body.\n\nString identifiers reference EvidenceObject rows; the browser NEVER\nsupplies entries, chain_id or contract_address (extra=\"forbid\" makes any\nsuch attempt a 422). On-chain uint256 values are resolved from the\ndatabase/chain and emitted as decimal STRINGS.",
+        "properties": {
+          "caseId": {
+            "title": "Caseid",
+            "type": "string"
+          },
+          "evidenceIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidenceids",
+            "type": "array"
+          },
+          "snapshotId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshotid"
+          }
+        },
+        "required": [
+          "caseId",
+          "evidenceIds"
+        ],
+        "title": "VerifyEvidenceRequest",
+        "type": "object"
+      },
       "WalletBindingResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2834,7 +2924,7 @@
     },
     "/api/v2/evidence/verify": {
       "post": {
-        "description": "Independently verifies an Evidence V2 payload against cryptographic hashing rules\nand on-chain anchor consensus.",
+        "description": "Independently verifies an Evidence V2 payload against cryptographic hashing rules\nand on-chain anchor consensus.\n\nR07 (spec §5): in institutional deployments this V2 browser-supplied-entries\nendpoint is GONE (410) — verification moved to POST /api/v3/evidence/verify,\nwhich accepts identifiers only and reads the chain itself. The demo mode\nkeeps a local computation tool (provenance_status stays non-official there).",
         "operationId": "verify_evidence_endpoint_api_v2_evidence_verify_post",
         "requestBody": {
           "content": {
