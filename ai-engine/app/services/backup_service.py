@@ -193,26 +193,18 @@ class BackupService:
             bind = session.get_bind()
             dialect_name = bind.dialect.name
 
-            if dialect_name == "sqlite":
-                session.commit()
-                try:
-                    session.execute(text(f"VACUUM INTO '{str(db_snapshot_file.resolve()).replace(chr(92), '/')}'"))
-                except Exception:
-                    dest_engine = create_engine(f"sqlite:///{db_snapshot_file}")
-                    Base.metadata.create_all(bind=dest_engine)
-                    DestSession = sessionmaker(bind=dest_engine)
-                    dest_session = DestSession()
-                    self._copy_all_records(session, dest_session)
-                    dest_session.commit()
-                    dest_session.close()
-            else:
-                dest_engine = create_engine(f"sqlite:///{db_snapshot_file}")
+            dest_engine = create_engine(f"sqlite:///{db_snapshot_file}")
+            try:
                 Base.metadata.create_all(bind=dest_engine)
                 DestSession = sessionmaker(bind=dest_engine)
                 dest_session = DestSession()
-                self._copy_all_records(session, dest_session)
-                dest_session.commit()
-                dest_session.close()
+                try:
+                    self._copy_all_records(session, dest_session)
+                    dest_session.commit()
+                finally:
+                    dest_session.close()
+            finally:
+                dest_engine.dispose()
 
             db_sha256 = _compute_sha256(db_snapshot_file)
 
@@ -498,58 +490,63 @@ class BackupService:
 
             # 6. Restore Database to Target Engine
             target_engine = create_engine(target_db_url)
-            Base.metadata.create_all(bind=target_engine)
-            TargetSession = sessionmaker(bind=target_engine)
-            target_session = TargetSession()
-
             src_engine = create_engine(f"sqlite:///{db_file}")
-            SrcSession = sessionmaker(bind=src_engine)
-            src_session = SrcSession()
+            try:
+                Base.metadata.create_all(bind=target_engine)
+                TargetSession = sessionmaker(bind=target_engine)
+                target_session = TargetSession()
 
-            self._copy_all_records(src_session, target_session)
-            target_session.commit()
+                SrcSession = sessionmaker(bind=src_engine)
+                src_session = SrcSession()
 
-            # 7. Verify Restored Counts Match Manifest
-            expected_counts = manifest.get("counts", {})
-            actual_counts = {
-                "institutions": target_session.query(func.count(Institution.id)).scalar() or 0,
-                "cases": target_session.query(func.count(Case.id)).scalar() or 0,
-                "transactions": target_session.query(func.count(TransactionRecord.id)).scalar() or 0,
-                "reports": target_session.query(func.count(ReportRecord.id)).scalar() or 0,
-                "assessments": target_session.query(func.count(AssessmentRecord.id)).scalar() or 0,
-                "chain_events": target_session.query(func.count(ChainEventRecord.id)).scalar() or 0,
-                "checkpoints": target_session.query(func.count(CheckpointRecord.id)).scalar() or 0,
-            }
+                try:
+                    self._copy_all_records(src_session, target_session)
+                    target_session.commit()
 
-            for model_name, exp_c in expected_counts.items():
-                act_c = actual_counts.get(model_name, 0)
-                if act_c != exp_c:
-                    self._log_event("RESTORE_REJECTED", reason="count_mismatch", model=model_name)
-                    raise BackupCorruptionError(
-                        f"Count mismatch after restore for {model_name}! Expected: {exp_c}, Actual: {act_c}"
-                    )
+                    # 7. Verify Restored Counts Match Manifest
+                    expected_counts = manifest.get("counts", {})
+                    actual_counts = {
+                        "institutions": target_session.query(func.count(Institution.id)).scalar() or 0,
+                        "cases": target_session.query(func.count(Case.id)).scalar() or 0,
+                        "transactions": target_session.query(func.count(TransactionRecord.id)).scalar() or 0,
+                        "reports": target_session.query(func.count(ReportRecord.id)).scalar() or 0,
+                        "assessments": target_session.query(func.count(AssessmentRecord.id)).scalar() or 0,
+                        "chain_events": target_session.query(func.count(ChainEventRecord.id)).scalar() or 0,
+                        "checkpoints": target_session.query(func.count(CheckpointRecord.id)).scalar() or 0,
+                    }
 
-            # 8. Restore Evidence Files to Target Directory
-            if target_evidence_dir and evidence_manifest:
-                t_ev_path = Path(target_evidence_dir)
-                t_ev_path.mkdir(parents=True, exist_ok=True)
-                for rel_path in evidence_manifest.keys():
-                    src_ev = evidence_dir / rel_path
-                    dst_ev = t_ev_path / rel_path
-                    dst_ev.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(src_ev, dst_ev)
+                    for model_name, exp_c in expected_counts.items():
+                        act_c = actual_counts.get(model_name, 0)
+                        if act_c != exp_c:
+                            self._log_event("RESTORE_REJECTED", reason="count_mismatch", model=model_name)
+                            raise BackupCorruptionError(
+                                f"Count mismatch after restore for {model_name}! Expected: {exp_c}, Actual: {act_c}"
+                            )
 
-            src_session.close()
-            target_session.close()
+                    # 8. Restore Evidence Files to Target Directory
+                    if target_evidence_dir and evidence_manifest:
+                        t_ev_path = Path(target_evidence_dir)
+                        t_ev_path.mkdir(parents=True, exist_ok=True)
+                        for rel_path in evidence_manifest.keys():
+                            src_ev = evidence_dir / rel_path
+                            dst_ev = t_ev_path / rel_path
+                            dst_ev.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src_ev, dst_ev)
 
-            self._log_event("RESTORE_VERIFIED", backup_id=manifest.get("backup_id"), counts=actual_counts)
-            return {
-                "backup_id": manifest.get("backup_id"),
-                "restored_at": datetime.now(timezone.utc).isoformat(),
-                "status": "VERIFIED_RESTORED",
-                "counts": actual_counts,
-                "checkpoints": manifest.get("checkpoints", []),
-            }
+                    self._log_event("RESTORE_VERIFIED", backup_id=manifest.get("backup_id"), counts=actual_counts)
+                    return {
+                        "backup_id": manifest.get("backup_id"),
+                        "restored_at": datetime.now(timezone.utc).isoformat(),
+                        "status": "VERIFIED_RESTORED",
+                        "counts": actual_counts,
+                        "checkpoints": manifest.get("checkpoints", []),
+                    }
+                finally:
+                    src_session.close()
+                    target_session.close()
+            finally:
+                src_engine.dispose()
+                target_engine.dispose()
 
         finally:
             if extract_dir.exists():

@@ -37,7 +37,7 @@ import uuid
 import weakref
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, BinaryIO, Dict, Optional, Tuple
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict
 
@@ -150,6 +150,53 @@ class EvidenceStore:
         self.max_size_bytes = max_size_bytes or settings.MAX_EVIDENCE_SIZE_BYTES
         self.key_provider = key_provider
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        self._audit_logs: List[Dict[str, Any]] = []
+        audit_file = self.base_dir / ".audit_logs.jsonl"
+        if audit_file.exists():
+            try:
+                with open(audit_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            self._audit_logs.append(json.loads(line))
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    def _log_action(self, action: str, institution_id: str, evidence_id: str, **kwargs) -> Dict[str, Any]:
+        entry = {
+            "action": action,
+            "institution_id": institution_id,
+            "evidence_id": evidence_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **kwargs,
+        }
+        self._audit_logs.append(entry)
+        audit_file = self.base_dir / ".audit_logs.jsonl"
+        try:
+            with open(audit_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except OSError:
+            pass
+        return entry
+
+    def get_audit_logs(self, institution_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        audit_file = self.base_dir / ".audit_logs.jsonl"
+        logs = list(self._audit_logs)
+        if audit_file.exists():
+            try:
+                disk_logs = []
+                with open(audit_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            disk_logs.append(json.loads(line))
+                if len(disk_logs) >= len(logs):
+                    logs = disk_logs
+            except (OSError, json.JSONDecodeError):
+                pass
+        if institution_id:
+            return [l for l in logs if l.get("institution_id") == institution_id]
+        return logs
 
     # ------------------------------------------------------------------
     # path safety
@@ -358,7 +405,7 @@ class EvidenceStore:
             )
 
             # 3. Atomic no-replace publish.
-            return self._publish_version(
+            stored = self._publish_version(
                 staging_dir=staging_dir,
                 ev_dir=ev_dir,
                 institution_id=clean_inst,
@@ -366,7 +413,22 @@ class EvidenceStore:
                 object_version=object_version,
                 record_meta=record_meta,
             )
+            self._log_action(
+                "PUT",
+                institution_id=clean_inst,
+                evidence_id=clean_ev,
+                version=object_version,
+                file_name=stored.file_name,
+                sha256=stored.sha256,
+            )
+            return stored
         except FileExistsError:
+            self._log_action(
+                "OVERWRITE_REJECTED",
+                institution_id=clean_inst,
+                evidence_id=clean_ev,
+                version=object_version,
+            )
             raise ValueError(
                 f"WORM Violation: Evidence '{clean_ev}' version {object_version} "
                 "already exists and is immutable"
@@ -509,32 +571,46 @@ class EvidenceStore:
         version_dir = version_candidate.resolve()
         self.validate_within_root(version_dir)
 
-        if version_dir.is_dir():
-            meta = self._load_version_meta(version_dir)
-            self._assert_meta_identity(meta, institution_id, clean_ev, object_version)
-            object_candidate = version_dir / _OBJECT_FILE
-            # Leaf-file link scan on the UNRESOLVED candidate, then resolved
-            # containment — a symlinked object.bin is never read (no
-            # arbitrary-file-read through the store API).
-            self._check_no_symlinks(object_candidate)
-            object_file = object_candidate.resolve()
-            self.validate_within_root(object_file)
-            if not object_file.exists():
-                raise FileNotFoundError(
-                    f"Underlying evidence object missing at {object_file}"
-                )
-            stored_bytes = object_file.read_bytes()
-            storage_format = meta.get("storage_format", LEGACY_PLAINTEXT_FORMAT)
-            if storage_format == STORAGE_FORMAT:
-                data = self._decrypt_verified(stored_bytes, meta, institution_id, clean_ev, object_version)
-            else:
-                data = stored_bytes
-                self._verify_legacy_hash(data, meta)
-                meta = dict(meta, storage_format=LEGACY_PLAINTEXT_FORMAT)
-            return data, meta
+        try:
+            if version_dir.is_dir():
+                meta = self._load_version_meta(version_dir)
+                self._assert_meta_identity(meta, institution_id, clean_ev, object_version)
+                object_candidate = version_dir / _OBJECT_FILE
+                # Leaf-file link scan on the UNRESOLVED candidate, then resolved
+                # containment — a symlinked object.bin is never read (no
+                # arbitrary-file-read through the store API).
+                self._check_no_symlinks(object_candidate)
+                object_file = object_candidate.resolve()
+                self.validate_within_root(object_file)
+                if not object_file.exists():
+                    raise FileNotFoundError(
+                        f"Underlying evidence object missing at {object_file}"
+                    )
+                stored_bytes = object_file.read_bytes()
+                storage_format = meta.get("storage_format", LEGACY_PLAINTEXT_FORMAT)
+                if storage_format == STORAGE_FORMAT:
+                    data = self._decrypt_verified(stored_bytes, meta, institution_id, clean_ev, object_version)
+                else:
+                    data = stored_bytes
+                    self._verify_legacy_hash(data, meta)
+                    meta = dict(meta, storage_format=LEGACY_PLAINTEXT_FORMAT)
+                self._log_action("OPEN", institution_id=institution_id, evidence_id=clean_ev, version=object_version)
+                return data, meta
 
-        # Legacy (pre-R06) flat layout: v{n}_meta.json + v{n}_{file_name}.
-        return self._open_legacy_flat(ev_dir, institution_id, evidence_id, object_version)
+            # Legacy (pre-R06) flat layout: v{n}_meta.json + v{n}_{file_name}.
+            data, meta = self._open_legacy_flat(ev_dir, institution_id, evidence_id, object_version)
+            self._log_action("OPEN", institution_id=institution_id, evidence_id=clean_ev, version=object_version)
+            return data, meta
+        except Exception as exc:
+            if "Integrity Compromised" in str(exc) or "tamper" in str(exc).lower() or isinstance(exc, (ValueError, InvalidCiphertextError, MalformedMetadataError)):
+                self._log_action(
+                    "TAMPER_DETECTED",
+                    institution_id=institution_id,
+                    evidence_id=clean_ev,
+                    version=object_version,
+                    error=str(exc),
+                )
+            raise
 
     def _open_legacy_flat(
         self, ev_dir: Path, institution_id: str, evidence_id: str, object_version: int
