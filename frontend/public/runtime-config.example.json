@@ -1,10 +1,11 @@
 {
-  "institution_id": "INST-CENTRAL-DEMO",
+  "app_mode": "institutional",
+  "api_origin": "",
   "chain_id": 1337,
   "rpc_url": "http://127.0.0.1:8545",
-  "ai_engine_url": "/api",
-  "app_mode": "demo",
-  "contract_version": "2.0.0",
+  "deployment_id": "INST-CBI-PILOT-001",
+  "institution_id": "INST-CBI-IQ-01",
+  "contract_version": "2.1.0",
   "contracts": {
     "RoleManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
     "InsiderActivityLog": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
@@ -12,5 +13,11 @@
     "ComplianceRules": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
     "MultiSigApproval": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "AuditEngine": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+  },
+  "oidc": {
+    "authority": "https://sso.institution.example/realms/cbi",
+    "client_id": "iraq-aml-frontend",
+    "redirect_uri": "http://localhost:3000/auth/callback",
+    "scope": "openid profile email"
   }
 }

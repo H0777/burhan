@@ -11,6 +11,29 @@ vi.mock('../api/client', () => ({
     createCase: vi.fn(),
     transitionCase: vi.fn(),
     uploadCaseEvidence: vi.fn(),
+    verifyEvidenceV3: vi.fn(),
+  },
+  // Pure helpers re-implemented from the real module for badge mapping tests.
+  mapAnchorState: (status) => {
+    const s = String(status || '').toUpperCase()
+    if (s === 'PENDING') return 'pending'
+    if (s === 'SUBMITTED') return 'submitted'
+    if (s === 'ANCHORED') return 'anchored'
+    if (s === 'FAILED' || s === 'DEAD') return 'failed'
+    return 'unavailable'
+  },
+  mapVerificationOutcome: (result) => {
+    if (!result || result.legacyGone || result.status === 410) {
+      return { state: 'legacy', onChain: false, reasons: [] }
+    }
+    if (String(result.provenance_status || '').toLowerCase() === 'demo') {
+      return { state: 'demo', onChain: false, reasons: [] }
+    }
+    const status = String(result.status || '').toLowerCase()
+    if (status === 'verified' || status === 'invalid' || status === 'unavailable') {
+      return { state: status, onChain: status === 'verified' && !result.http_only, reasons: [] }
+    }
+    return { state: 'unavailable', onChain: false, reasons: [] }
   },
 }))
 
@@ -191,5 +214,102 @@ describe('CaseWorkspace Component & Four-Eyes Governance (T16)', () => {
 
     const approveBtn = screen.getByRole('button', { name: /Approve Resolution/i })
     expect(approveBtn.disabled).toBe(true)
+  })
+
+  // ------------------------------------------------------------------
+  // R13 — UI state distinctions
+  // ------------------------------------------------------------------
+
+  it('upload is HTTP-only: anchor badge shows pending/submitted without a blockchain-success claim', async () => {
+    render(<CaseWorkspace t={{}} isRtl={false} userRole="OPERATOR" account="0x123" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('2 files')).toBeDefined()
+    })
+
+    const fileInput = screen.getByTestId('evidence-file-input')
+    apiV2Client.uploadCaseEvidence.mockResolvedValue({ id: 'ev_9', anchor_status: 'SUBMITTED' })
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'a.pdf')] } })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('anchor-state-badge')).toBeDefined()
+    })
+    expect(screen.getByTestId('anchor-state-badge').textContent).toContain('submitted')
+    // SUBMITTED is not final: no on-chain success wording.
+    expect(screen.getByTestId('anchor-state-badge').textContent).toMatch(/not blockchain-anchored/i)
+  })
+
+  it('anchored badge carries the on-chain wording only for ANCHORED state', async () => {
+    render(<CaseWorkspace t={{}} isRtl={false} userRole="OPERATOR" account="0x123" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('2 files')).toBeDefined()
+    })
+
+    apiV2Client.uploadCaseEvidence.mockResolvedValue({ id: 'ev_10', anchor_status: 'ANCHORED' })
+    fireEvent.change(screen.getByTestId('evidence-file-input'), {
+      target: { files: [new File(['x'], 'b.pdf')] },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('anchor-state-badge').textContent).toContain('anchored')
+    })
+    expect(screen.getByTestId('anchor-state-badge').textContent).not.toMatch(/not blockchain-anchored/i)
+  })
+
+  it('verification badge distinguishes verified/invalid/unavailable and demo', async () => {
+    render(<CaseWorkspace t={{}} isRtl={false} userRole="AUDITOR" account="0x123" />)
+
+    await waitFor(() => {
+      expect(screen.getByText('2 files')).toBeDefined()
+    })
+
+    apiV2Client.verifyEvidenceV3.mockResolvedValue({
+      status: 'verified',
+      provenance_status: 'official',
+      reasons: [],
+    })
+    fireEvent.click(screen.getByTestId('verify-evidence-button'))
+    await waitFor(() => {
+      expect(screen.getByTestId('verification-state-badge').textContent).toContain('verified')
+    })
+
+    apiV2Client.verifyEvidenceV3.mockResolvedValue({
+      status: 'verified',
+      provenance_status: 'demo',
+      reasons: [],
+    })
+    fireEvent.click(screen.getByTestId('verify-evidence-button'))
+    await waitFor(() => {
+      expect(screen.getByTestId('verification-state-badge').textContent).toContain('demo')
+    })
+
+    apiV2Client.verifyEvidenceV3.mockResolvedValue({
+      status: 'unavailable',
+      provenance_status: 'official',
+      reasons: ['snapshot_reorged'],
+    })
+    fireEvent.click(screen.getByTestId('verify-evidence-button'))
+    await waitFor(() => {
+      expect(screen.getByTestId('verification-state-badge').textContent).toContain('unavailable')
+    })
+  })
+
+  it('410 legacy V2 response renders a clear V3 transition banner, never an auto-accepted legacy entry', async () => {
+    const legacyError = new Error('API Error [410]: V2 evidence verify retired; use /api/v3/evidence/verify')
+    legacyError.status = 410
+    legacyError.legacyGone = true
+    legacyError.body = { detail: 'V2 retired', v3: '/api/v3/evidence/verify' }
+    apiV2Client.listCases.mockRejectedValue(legacyError)
+
+    render(<CaseWorkspace t={{}} isRtl={false} userRole="AUDITOR" account="0x123" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('legacy-410-banner')).toBeDefined()
+    })
+    expect(screen.getByTestId('legacy-410-banner').textContent).toContain('/api/v3/evidence/verify')
+    expect(screen.getByTestId('legacy-410-banner').textContent).toMatch(/NOT auto-accepted/i)
+    // The generic error banner must not double-render the failure:
+    expect(screen.queryByText(/Failed to load cases/i)).toBeNull()
   })
 })

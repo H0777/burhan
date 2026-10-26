@@ -10,7 +10,7 @@ import {
   ROLES,
   CONTRACT_ADDRESSES,
 } from '../utils/contract'
-import { isInstitutionalMode } from '../config/runtime'
+import { isInstitutionalMode, assertChainIdMatchesConfig } from '../config/runtime'
 import { apiV2Client } from '../api/client'
 
 const ROLE_NAMES = ['NONE', 'SUPER_ADMIN', 'AUDITOR', 'OPERATOR', 'REGULATOR']
@@ -134,6 +134,23 @@ export function useAuditEngine() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [networkConnected, setNetworkConnected] = useState(false)
+  // R13: config/identity/wallet gating — submit stays disabled while any of
+  // them loads (no_getSigner_zero_fallback) and writes halt on account/chain change.
+  const [walletReady, setWalletReady] = useState(false)
+  const [bootstrapping, setBootstrapping] = useState(true)
+  const [writesHalted, setWritesHalted] = useState(false)
+
+  // Institutional writes require: config loaded (guaranteed by main.jsx gate),
+  // an authenticated identity, a connected wallet on the configured chain, and
+  // no account/chain-change halt. Demo keeps the historical local flow.
+  const writesBlockedReason = (() => {
+    if (bootstrapping) return 'config-or-wallet-loading'
+    if (writesHalted) return 'account-or-chain-changed'
+    if (isInstitutionalMode() && !networkConnected) return 'wallet-not-connected'
+    if (isInstitutionalMode() && !walletReady) return 'wallet-not-ready'
+    return null
+  })()
+  const canSubmit = writesBlockedReason === null
 
   // Fetch all contract state
   const fetchContractData = useCallback(async () => {
@@ -273,7 +290,14 @@ export function useAuditEngine() {
     try {
       setLoading(true)
       setError(null)
-      const { address } = await connectWallet()
+      const { address, provider: walletProvider } = await connectWallet()
+
+      // R13: strict chain check — chainId must equal RuntimeConfig.chain_id
+      // EXACTLY, even locally (wrong_chain_even_31337_rejected).
+      const netProvider = walletProvider || getProvider()
+      const network = await netProvider.getNetwork()
+      await assertChainIdMatchesConfig(network)
+
       setAccount(address)
 
       const provider = getProvider()
@@ -284,12 +308,15 @@ export function useAuditEngine() {
 
       setUserRole(roleName)
       setIsAdmin(roleName === 'SUPER_ADMIN')
+      setWalletReady(true)
+      setWritesHalted(false)
       await fetchContractData()
     } catch (err) {
       setError(err.message)
       if (isInstitutionalMode()) {
         setUserRole('NONE')
         setIsAdmin(false)
+        setWalletReady(false)
       }
     } finally {
       setLoading(false)
@@ -298,6 +325,15 @@ export function useAuditEngine() {
 
   // Submit transaction
   const submitTransaction = useCallback(async (receiver, amount) => {
+    // R13 no_getSigner_zero_fallback: while config/identity/wallet load or a
+    // halt is active, submit is refused outright — never a local fake write and
+    // never an unlocked signer #0 fallback.
+    if (!canSubmit) {
+      const reason = `Submit disabled (${writesBlockedReason}) — connect an authorized institutional wallet.`
+      setError(reason)
+      return { success: false, blocked: true, reason }
+    }
+
     try {
       setLoading(true)
       setError(null)
@@ -311,7 +347,14 @@ export function useAuditEngine() {
         return { success: true }
       }
 
-      // Local state update when offline
+      if (isInstitutionalMode()) {
+        // Institutional offline = NO local state write (no simulated success).
+        const reason = 'Institutional mode: chain unavailable — write refused (no local fallback).'
+        setError(reason)
+        return { success: false, blocked: true, reason }
+      }
+
+      // Demo-only local state update when offline
       const newTx = {
         id: transactions.length + 1,
         sender: account || '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
@@ -340,7 +383,7 @@ export function useAuditEngine() {
     } finally {
       setLoading(false)
     }
-  }, [account, networkConnected, transactions.length, fetchContractData])
+  }, [account, canSubmit, writesBlockedReason, networkConnected, transactions.length, fetchContractData])
 
   // Flag / block transaction
   const flagTransaction = useCallback(async (txId, reason) => {
@@ -412,9 +455,21 @@ export function useAuditEngine() {
 
   // Initial load & wallet listener
   useEffect(() => {
+    // R13: account_or_chain_change halts writes until the wallet is re-bound;
+    // role resets to NONE in institutional mode (identity handled by AuthProvider).
+    const handleAccountOrChainChange = () => {
+      if (!isInstitutionalMode()) return
+      setWalletReady(false)
+      setWritesHalted(true)
+      setUserRole('NONE')
+      setIsAdmin(false)
+      setError('Wallet account or chain changed — writes halted until the wallet is re-connected.')
+    }
+
     const syncRole = async (addr) => {
       if (!addr) {
         setAccount(null)
+        setWalletReady(false)
         setUserRole(isInstitutionalMode() ? 'NONE' : 'SUPER_ADMIN')
         setIsAdmin(!isInstitutionalMode())
         return
@@ -436,9 +491,17 @@ export function useAuditEngine() {
 
     if (window.ethereum) {
       const handleAccounts = (accounts) => {
+        if (isInstitutionalMode()) {
+          handleAccountOrChainChange()
+        }
         syncRole(accounts[0] || null)
       }
+      const handleChainChanged = () => {
+        handleAccountOrChainChange()
+        syncRole(window.ethereum?.selectedAddress || null)
+      }
       window.ethereum.on('accountsChanged', handleAccounts)
+      window.ethereum.on('chainChanged', handleChainChanged)
     }
 
     // Auto-connect to local node or unlocked signer
@@ -454,6 +517,9 @@ export function useAuditEngine() {
         setUserRole('NONE')
         setIsAdmin(false)
       }
+    }).finally(() => {
+      // Bootstrap finished: config+wallet loading state clears either way.
+      setBootstrapping(false)
     })
 
     fetchContractData()
@@ -536,6 +602,10 @@ export function useAuditEngine() {
     loading,
     error,
     networkConnected,
+    // R13 write gates
+    canSubmit,
+    writesBlockedReason,
+    writesHalted,
     connect,
     fetchTransactions: fetchContractData,
     submitTransaction,

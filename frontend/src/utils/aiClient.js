@@ -1,16 +1,23 @@
 /**
- * AI Engine API Client
+ * AI Engine API Client (R13 config-aware)
  * Interacts with the FastAPI Python AI Engine backend.
- * Provides resilient fallbacks so the UI remains 100% functional even when offline.
+ * The base URL now derives from the RESOLVED RuntimeConfig.api_origin
+ * (single source; "" = same-origin) — never a hardcoded localhost default.
+ * Local deterministic fallbacks remain for demo exploration only.
  */
 
-const AI_BASE_URL = import.meta.env.VITE_AI_ENGINE_URL || 'http://localhost:8005'
+import { getRuntimeConfig } from '../config/runtime.js'
+
+function aiBaseUrl() {
+  const runtime = getRuntimeConfig()
+  return (runtime?.api_origin ?? '').replace(/\/+$/, '')
+}
 
 /**
  * Perform a generic fetch to the AI Engine with timeout and error handling.
  */
 async function aiFetch(endpoint, options = {}, fallbackData = null) {
-  const url = `${AI_BASE_URL}${endpoint}`
+  const url = `${aiBaseUrl()}${endpoint}`
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 8000)
 
@@ -43,10 +50,12 @@ async function aiFetch(endpoint, options = {}, fallbackData = null) {
 
 /**
  * Check AI Engine server health against authoritative V2 readiness endpoint.
+ * R13: no V1 fallback — an unreachable/unknown V2 readiness is reported
+ * honestly as offline instead of being masked by a legacy endpoint.
  */
 export async function checkAIHealth() {
-  const url = `${AI_BASE_URL}/api/v2/health/ready`
   try {
+    const url = `${aiBaseUrl()}/api/v2/health/ready`
     const response = await fetch(url, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -62,21 +71,8 @@ export async function checkAIHealth() {
         details: data.details || {},
       }
     }
-    // Try fallback to V1 health if V2 is not available
-    const v1Res = await fetch(`${AI_BASE_URL}/api/v1/health`)
-    if (v1Res.ok) {
-      const v1Data = await v1Res.json()
-      return {
-        status: v1Data.status,
-        ready: true,
-        model_loaded: Boolean(v1Data.capabilities?.local_ml),
-        service: 'Cyber-Auditing AI Engine v1',
-        version: v1Data.version,
-      }
-    }
     throw new Error(`Health check returned HTTP ${response.status}`)
   } catch (error) {
-    console.warn(`[AIClient] Health check failed (${error.message}).`)
     return {
       status: 'offline',
       ready: false,

@@ -20,7 +20,7 @@ import {
   XCircle,
   RotateCcw,
 } from 'lucide-react'
-import { apiV2Client } from '../api/client'
+import { apiV2Client, mapAnchorState, mapVerificationOutcome } from '../api/client'
 
 const MOCK_IDENTITIES = [
   { sub: 'operator-1', role: 'OPERATOR', name: 'Investigator Tariq (Operator)' },
@@ -58,6 +58,16 @@ export function CaseWorkspace({ t, isRtl, userRole, account }) {
   const [transitionReason, setTransitionReason] = useState('')
   const [showReasonModal, setShowReasonModal] = useState(false)
 
+  // R13 UI state distinctions:
+  //  - legacyTransition: HTTP 410 from V2 → clear V3 transition, never auto-accepted.
+  //  - anchorState: pending | submitted | anchored (upload alone is HTTP-only —
+  //    never presented as blockchain success).
+  //  - verification: verified | invalid | unavailable | demo | legacy.
+  const [legacyTransition, setLegacyTransition] = useState(null)
+  const [anchorState, setAnchorState] = useState(null)
+  const [verification, setVerification] = useState(null)
+  const [evidenceBusy, setEvidenceBusy] = useState(false)
+
   // Load cases list
   const loadCases = useCallback(async () => {
     setLoading(true)
@@ -70,7 +80,13 @@ export function CaseWorkspace({ t, isRtl, userRole, account }) {
         setSelectedCaseId(items[0].id)
       }
     } catch (err) {
-      setError(err.message || 'Failed to load cases')
+      if (err?.legacyGone) {
+        // 410 — deliberate V3 contract break (spec §5): show the transition,
+        // never accept a legacy result silently.
+        setLegacyTransition(String(err?.body?.v3 || '/api/v3/evidence/verify'))
+      } else {
+        setError(err.message || 'Failed to load cases')
+      }
     } finally {
       setLoading(false)
     }
@@ -167,6 +183,61 @@ export function CaseWorkspace({ t, isRtl, userRole, account }) {
     } else {
       handleExecuteTransition(action, '')
     }
+  }
+
+  // R13: evidence upload + anchor/verification state panel.
+  const handleUploadEvidence = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedCaseId) return
+    setEvidenceBusy(true)
+    setAnchorState(null)
+    setVerification(null)
+    try {
+      const resp = await apiV2Client.uploadCaseEvidence(selectedCaseId, file)
+      // HTTP-only upload: stored ≠ anchored. SUBMITTED is explicitly not final.
+      setAnchorState(mapAnchorState(resp?.anchor_status || 'PENDING'))
+    } catch (err) {
+      if (err?.legacyGone) {
+        setLegacyTransition(String(err?.body?.v3 || '/api/v3/evidence/verify'))
+      } else {
+        setError(err.message || 'Evidence upload failed')
+      }
+    } finally {
+      setEvidenceBusy(false)
+      e.target.value = ''
+    }
+  }
+
+  const handleVerifyEvidence = async () => {
+    if (!caseDetail?.case?.id) return
+    setEvidenceBusy(true)
+    setVerification(null)
+    try {
+      const result = await apiV2Client.verifyEvidenceV3(
+        caseDetail.case.id,
+        caseDetail.evidence_ids || [],
+      )
+      setVerification(mapVerificationOutcome(result))
+    } catch (err) {
+      setVerification(mapVerificationOutcome(err))
+    } finally {
+      setEvidenceBusy(false)
+    }
+  }
+
+  const anchorBadge = {
+    pending: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+    submitted: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+    anchored: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    failed: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+    unavailable: 'bg-gray-500/20 text-gray-300 border-gray-500/40',
+  }
+  const verificationBadge = {
+    verified: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+    invalid: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+    unavailable: 'bg-gray-500/20 text-gray-300 border-gray-500/40',
+    demo: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
+    legacy: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
   }
 
   // Check if current persona is the last requester of approval
@@ -272,6 +343,19 @@ export function CaseWorkspace({ t, isRtl, userRole, account }) {
         </div>
 
         {/* Global Alert Messages */}
+        {legacyTransition && (
+          <div
+            data-testid="legacy-410-banner"
+            className="mt-4 p-3 bg-amber-950/70 border border-amber-700 rounded-xl text-amber-200 text-xs flex items-center gap-2 animate-fade-in"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+            <span>
+              {isRtl
+                ? `واجهة V2 سحبت (410). الانتقال إلى V3 إلزامي: ${legacyTransition} — لا تُقبل نتائج قديمة تلقائياً.`
+                : `V2 endpoint retired (410). A clear transition to V3 is required: ${legacyTransition} — legacy results are NOT auto-accepted.`}
+            </span>
+          </div>
+        )}
         {error && (
           <div className="mt-4 p-3 bg-rose-950/70 border border-rose-800 rounded-xl text-rose-300 text-xs flex items-center gap-2 animate-fade-in">
             <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
@@ -425,6 +509,68 @@ export function CaseWorkspace({ t, isRtl, userRole, account }) {
                     <span className="text-gray-400">{new Date(caseDetail.case.updated_at).toLocaleTimeString()}</span>
                   </div>
                 </div>
+              </div>
+
+              {/* Evidence Anchoring & Verification States (R13) */}
+              <div className="bg-cyber-950/70 border border-cyber-800 rounded-xl p-4 space-y-3">
+                <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-cyan-400" />
+                  <span>{isRtl ? 'الأدلة والتثبيت والتحقق' : 'Evidence Anchoring & Verification'}</span>
+                </h3>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="px-3 py-2 bg-cyber-800 hover:bg-cyber-700 text-gray-200 rounded-xl text-xs font-semibold cursor-pointer flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isRtl ? 'رفع دليل' : 'Upload Evidence'}</span>
+                    <input
+                      type="file"
+                      data-testid="evidence-file-input"
+                      onChange={handleUploadEvidence}
+                      disabled={evidenceBusy}
+                      className="hidden"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleVerifyEvidence}
+                    disabled={evidenceBusy}
+                    data-testid="verify-evidence-button"
+                    className="px-3 py-2 bg-cyan-700 hover:bg-cyan-600 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{isRtl ? 'تحقق V3' : 'Verify (V3)'}</span>
+                  </button>
+                </div>
+
+                {anchorState && (
+                  <div
+                    data-testid="anchor-state-badge"
+                    className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-full border font-mono font-bold ${anchorBadge[anchorState] || anchorBadge.unavailable}`}
+                  >
+                    <Clock className="w-3 h-3" />
+                    anchor: {anchorState}
+                    {anchorState !== 'anchored' && (
+                      <span className="font-normal">
+                        {isRtl ? '(رفع HTTP فقط — لا نجاح بلوكشين)' : '(HTTP upload only — not blockchain-anchored)'}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {verification && (
+                  <div
+                    data-testid="verification-state-badge"
+                    className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-full border font-mono font-bold ${verificationBadge[verification.state] || verificationBadge.unavailable}`}
+                  >
+                    <Scale className="w-3 h-3" />
+                    verification: {verification.state}
+                    {!verification.onChain && verification.state !== 'invalid' && (
+                      <span className="font-normal">
+                        {isRtl ? '(لا ادعاء تثبيت على السلسلة)' : '(no on-chain claim)'}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Four-Eyes Governance Actions Box */}

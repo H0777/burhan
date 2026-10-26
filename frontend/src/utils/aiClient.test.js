@@ -1,4 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+
+// R13: aiClient derives its base URL from the resolved RuntimeConfig; these
+// tests exercise it post-load with a same-origin demo config.
+vi.mock('../config/runtime.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    getRuntimeConfig: () => ({ app_mode: 'demo', api_origin: '', chain_id: 31337 }),
+  }
+})
+
 import { checkAIHealth } from './aiClient.js'
 
 describe('aiClient - checkAIHealth (T07/T08)', () => {
