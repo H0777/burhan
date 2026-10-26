@@ -150,3 +150,7 @@ class ContractScannerService:
             status=status_label,
             limitations=limitations,
         )
+
+
+# Backwards compatibility alias
+ScannerService = ContractScannerService

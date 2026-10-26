@@ -132,3 +132,7 @@ class LLMProviderService:
             sanitized=True,
             redaction_summary=redacted.redacted_categories,
         )
+
+
+# Backwards compatibility alias
+LLMProvider = LLMProviderService
