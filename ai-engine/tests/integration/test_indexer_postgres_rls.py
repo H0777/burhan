@@ -136,6 +136,15 @@ def seeded_tenant(owner_engine):
         if session.get(Institution, TENANT) is None:
             session.add(Institution(id=TENANT, name="Indexer RLS Regression Tenant"))
             session.commit()
+        # The test database persists across suite runs (same convention as
+        # test_postgres_rls.py): clear this tenant's indexer rows so each run
+        # starts from a clean slate. FORCEd RLS applies to the owner too, so
+        # the delete goes through the tenant context.
+        from app.db.session import tenant_transaction as _tt
+        from sqlalchemy import delete as _delete
+        with _tt(session, TENANT):
+            for model in (ChainEventRecord, CheckpointRecord, WorkerHeartbeat):
+                session.execute(_delete(model).where(model.institution_id == TENANT))
     yield
 
 
