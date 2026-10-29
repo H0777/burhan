@@ -142,6 +142,61 @@ jobs:
           fi
           echo "No tracked secret files found."
 
+  # H03 SCA gate. Audits production dependency surfaces only (--omit=dev).
+  # Fail policy: the job FAILS only on CRITICAL-severity findings
+  # (npm --audit-level=critical; pip-audit + scripts/sca-pip-severity-filter.py).
+  # High/Moderate/Low findings are printed to the job log but do not fail CI.
+  # Both npm audits run straight off the lockfiles — no node_modules or
+  # npm ci needed (npm audit resolves the tree from package-lock.json).
+  # Full rationale and local scan evidence: docs/verification/program/sca-h03.md
+  sca-dependency-scan:
+    name: SCA Dependency Vulnerability Gate (fail on Critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 24 (npm registry cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Audit Root Node Dependencies (production surface)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Audit Frontend Node Dependencies (production surface)
+        working-directory: ./frontend
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Setup Python 3.11 (pip cache)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: ai-engine/requirements.txt
+
+      - name: Install pip-audit (version pinned for reproducible gate)
+        run: |
+          pip install --upgrade pip
+          pip install pip-audit==2.10.1
+
+      - name: Audit Python Dependencies (full resolution; fail on CRITICAL only)
+        run: |
+          set +e
+          pip-audit -r ai-engine/requirements.txt --strict --format json \
+            --output "$RUNNER_TEMP/sca-pip-audit.json" --progress-spinner off
+          PIP_EXIT=$?
+          set -e
+          echo "pip-audit exit code: $PIP_EXIT (non-zero means findings OR resolution error; severity policy is applied by the filter below)"
+          if [ ! -s "$RUNNER_TEMP/sca-pip-audit.json" ]; then
+            echo "SCA GATE ERROR: pip-audit produced no report — resolution failed (--strict) or the tool errored. Gate cannot attest; investigate the log above."
+            exit 2
+          fi
+          python scripts/sca-pip-severity-filter.py "$RUNNER_TEMP/sca-pip-audit.json"
+
   verify-integration:
     name: Full Trust Flow E2E Integration Gate
     runs-on: ubuntu-latest
