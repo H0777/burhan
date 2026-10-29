@@ -1,0 +1,218 @@
+# H04 staging stack — PostgreSQL 16 + engine + anchor/indexer workers + EVM node
+# + nginx frontend, APP_MODE=institutional.
+#
+# This compose does NOT touch the demo docker-compose.yml. Service names mirror
+# the demo compose where the frontend nginx.conf depends on them (ai-engine).
+#
+# Port policy (brief H04):
+#   * Container ports stay standard internally: PG 5432, EVM 8545, engine 8000,
+#     nginx 3000.
+#   * Host ports avoid the locally reserved 5432/8545/8000: staging publishes
+#     ONLY loopback-bound ports — nginx 18080 (the host interface), PG 15432 and
+#     EVM 18545 bound to 127.0.0.1 exclusively for operator + test-runner access
+#     (the RLS suite and the E2E runner execute on the host). Nothing is
+#     published on 0.0.0.0.
+#
+# Secrets policy: every credential is interpolated from infra/staging/.env
+# (gitignored). Missing values fail the compose run explicitly (`:?`). No
+# secret is committed. Start with:
+#   docker compose --env-file infra/staging/.env -f infra/staging/docker-compose.staging.yml up -d --build
+#
+# OIDC: APP_MODE=institutional requires OIDC_ENABLED=true with issuer/audience/
+# JWKS declared. The declared provider is an HONEST PLACEHOLDER (a
+# non-resolvable staging hostname) — the real Keycloak lands in H05. No fake
+# provider is stood up here; authenticated API/UI flows are pending-H05.
+
+name: iraq-aml-staging
+
+services:
+  # 1. PostgreSQL 16 — production-like, RLS, two least-privilege roles
+  #    (ira_aml_migrator owner / ira_aml_app data-plane) provisioned by
+  #    ops/postgres/init-roles.sql reused verbatim via staging-init.sh.
+  postgres:
+    image: postgres:16-alpine
+    container_name: aml_staging_postgres
+    environment:
+      POSTGRES_DB: iraq_aml_staging
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${STAGING_PG_SUPERUSER_PASSWORD:?set STAGING_PG_SUPERUSER_PASSWORD in infra/staging/.env}
+      STAGING_MIGRATOR_PASSWORD: ${STAGING_MIGRATOR_PASSWORD:?set STAGING_MIGRATOR_PASSWORD in infra/staging/.env}
+      STAGING_APP_PASSWORD: ${STAGING_APP_PASSWORD:?set STAGING_APP_PASSWORD in infra/staging/.env}
+    ports:
+      - "127.0.0.1:15432:5432"   # loopback-only: operator psql + host test suites
+    volumes:
+      - staging_pg_data:/var/lib/postgresql/data
+      - ../../ops/postgres/init-roles.sql:/ops/postgres/init-roles.sql:ro
+      - ../../ops/postgres/staging-init.sql:/ops/postgres/staging-init.sql:ro
+      - ../../ops/postgres/staging-init.sh:/docker-entrypoint-initdb.d/10-staging-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iraq_aml_staging"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # 2. Local EVM node (Hardhat). Bind-mounts the repo; node_modules stay in a
+  #    named Linux volume so Windows host binaries never leak into the container.
+  hardhat-node:
+    image: node:20-alpine
+    container_name: aml_staging_evm
+    working_dir: /app
+    volumes:
+      - ../..:/app
+      - staging_node_modules:/app/node_modules
+    command: sh -c "npm install --no-audit --no-fund && npx hardhat node --hostname 0.0.0.0"
+    ports:
+      - "127.0.0.1:18545:8545"   # loopback-only: E2E runner + operator RPC
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8545"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    restart: unless-stopped
+
+  # 3. One-shot contract deployment + bootstrap; writes the authoritative
+  #    deployments/deployment-manifest.json (tracked file — a staging deploy
+  #    dirties it; restore with git restore deployments/ after validation).
+  contract-deployer:
+    image: node:20-alpine
+    container_name: aml_staging_deployer
+    working_dir: /app
+    volumes:
+      - ../..:/app
+      - staging_node_modules:/app/node_modules
+    environment:
+      BLOCKCHAIN_RPC_URL: http://hardhat-node:8545
+      LOCALHOST_RPC_URL: http://hardhat-node:8545
+      INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+    command: sh -c "npx hardhat run scripts/deploy.js --network localhost"
+    depends_on:
+      hardhat-node:
+        condition: service_healthy
+    restart: "no"
+
+  # 4. One-shot funder: gives the staging anchor signer gas so the anchor
+  #    worker can submit on-chain. Funds the key from gitignored
+  #    infra/staging/.env out of Hardhat's pre-funded account #0.
+  anchor-funder:
+    image: node:20-alpine
+    container_name: aml_staging_anchor_funder
+    working_dir: /app
+    volumes:
+      - ../..:/app
+      - staging_node_modules:/app/node_modules
+    environment:
+      STAGING_ANCHOR_SIGNER_PRIVATE_KEY: ${STAGING_ANCHOR_SIGNER_PRIVATE_KEY:?set STAGING_ANCHOR_SIGNER_PRIVATE_KEY in infra/staging/.env}
+    command: >-
+      node -e "const {ethers}=require('ethers');(async()=>{const p=new ethers.JsonRpcProvider('http://hardhat-node:8545');const f=new ethers.Wallet('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',p);const a=new ethers.Wallet(process.env.STAGING_ANCHOR_SIGNER_PRIVATE_KEY.trim().startsWith('0x')?process.env.STAGING_ANCHOR_SIGNER_PRIVATE_KEY.trim():'0x'+process.env.STAGING_ANCHOR_SIGNER_PRIVATE_KEY.trim(),p);const tx=await f.sendTransaction({to:a.address,value:ethers.parseEther('10')});await tx.wait();console.log('anchor signer funded:',a.address);})().catch(e=>{console.error(e);process.exit(1)})"
+    depends_on:
+      contract-deployer:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # 5. AI engine — APP_MODE=institutional, PostgreSQL via the LEAST-PRIVILEGE
+  #    app role (never the migrator, never a superuser). No host port: reachable
+  #    only through the nginx frontend proxy.
+  ai-engine:
+    build:
+      context: ../../ai-engine
+      dockerfile: Dockerfile
+    image: iraq-aml/staging-engine:h04
+    container_name: aml_staging_engine
+    environment:
+      APP_MODE: institutional
+      # Declared placeholder pending H05 (real Keycloak): the R10 startup gate
+      # requires these to be present; the issuer/JWKS hostname is intentionally
+      # non-resolvable until H05 wires the real provider.
+      OIDC_ENABLED: "true"
+      OIDC_ISSUER: ${STAGING_OIDC_ISSUER:-https://keycloak.staging.iraq-aml.invalid/realms/iraq-aml}
+      OIDC_AUDIENCE: iraq-aml-audit-engine
+      OIDC_JWKS_URL: ${STAGING_OIDC_JWKS_URL:-https://keycloak.staging.iraq-aml.invalid/realms/iraq-aml/protocol/openid-connect/certs}
+      DATABASE_URL: postgresql+psycopg://ira_aml_app:${STAGING_APP_PASSWORD:?}@postgres:5432/iraq_aml_staging
+      BLOCKCHAIN_RPC_URL: http://hardhat-node:8545
+      INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+      DEPLOYMENT_MANIFEST_PATH: /app/deployments/deployment-manifest.json
+      EVIDENCE_STORE_PATH: /app/data/evidence
+    volumes:
+      - ../../deployments:/app/deployments:ro
+      - staging_evidence:/app/data/evidence
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hardhat-node:
+        condition: service_healthy
+      contract-deployer:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 6. Anchor worker (R08 entrypoint) — signs outbox anchors with the key from
+  #    gitignored infra/staging/.env (mounted secret, never committed).
+  worker-anchor:
+    image: iraq-aml/staging-engine:h04
+    container_name: aml_staging_worker_anchor
+    environment:
+      DATABASE_URL: postgresql+psycopg://ira_aml_app:${STAGING_APP_PASSWORD:?}@postgres:5432/iraq_aml_staging
+      BLOCKCHAIN_RPC_URL: http://hardhat-node:8545
+      INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+      WORKER_INSTITUTIONS: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+      ANCHOR_SIGNER_PRIVATE_KEY: ${STAGING_ANCHOR_SIGNER_PRIVATE_KEY:?set STAGING_ANCHOR_SIGNER_PRIVATE_KEY in infra/staging/.env}
+      DEPLOYMENT_MANIFEST_PATH: /app/deployments/deployment-manifest.json
+      EVIDENCE_STORE_PATH: /app/data/evidence
+    command: python -m app.workers.runner anchor
+    volumes:
+      - ../../deployments:/app/deployments:ro
+      - staging_evidence:/app/data/evidence
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hardhat-node:
+        condition: service_healthy
+      contract-deployer:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 7. Indexer worker (R08 entrypoint) — ingests chain events + heartbeats.
+  worker-indexer:
+    image: iraq-aml/staging-engine:h04
+    container_name: aml_staging_worker_indexer
+    environment:
+      DATABASE_URL: postgresql+psycopg://ira_aml_app:${STAGING_APP_PASSWORD:?}@postgres:5432/iraq_aml_staging
+      BLOCKCHAIN_RPC_URL: http://hardhat-node:8545
+      INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+      WORKER_INSTITUTIONS: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+      DEPLOYMENT_MANIFEST_PATH: /app/deployments/deployment-manifest.json
+      EVIDENCE_STORE_PATH: /app/data/evidence
+    command: python -m app.workers.runner indexer
+    volumes:
+      - ../../deployments:/app/deployments:ro
+      - staging_evidence:/app/data/evidence
+    depends_on:
+      postgres:
+        condition: service_healthy
+      hardhat-node:
+        condition: service_healthy
+      contract-deployer:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # 8. Frontend via nginx — the ONLY host-facing interface (loopback 18080).
+  #    The staging runtime-config.json is mounted over the built one so the
+  #    tracked frontend/public/runtime-config.json is never modified.
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    image: iraq-aml/staging-frontend:h04
+    container_name: aml_staging_frontend
+    ports:
+      - "127.0.0.1:18080:3000"
+    volumes:
+      - ./runtime-config.staging.json:/usr/share/nginx/html/runtime-config.json:ro
+    depends_on:
+      ai-engine:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  staging_pg_data:
+  staging_node_modules:
+  staging_evidence:
