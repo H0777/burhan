@@ -102,6 +102,10 @@ async function main() {
       fs.unlinkSync(testDbPath);
     } catch {}
   }
+  // SQLite cannot create parent directories itself; on a fresh CI runner
+  // test-results/ does not exist and the engine's DB open fails with
+  // "unable to open database file" (Linux), leaving /health/ready at 503.
+  fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
 
   // 1. Check or start Hardhat Node
   const rpcRunning = await checkRpc(RPC_PORT);

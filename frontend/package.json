@@ -36,5 +36,8 @@
     "vitest": "^1.6.1"
   },
   "author": "H0777",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "undici": "^7.16.0"
+  }
 }
