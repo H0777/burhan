@@ -180,7 +180,7 @@ async function main() {
           PYTHONPATH: path.join(ROOT_DIR, 'ai-engine'),
           INSTITUTION_ID: 'INST-CENTRAL-DEMO',
           BLOCKCHAIN_RPC_URL: `http://127.0.0.1:${RPC_PORT}`,
-          DATABASE_URL: process.env.DATABASE_URL || `sqlite:///${path.join(ROOT_DIR, 'test-results', 'integration.db').replace(/\\/g, '/')}`,
+          DATABASE_URL: process.env.DATABASE_URL || `sqlite:///${testDbPath.replace(/\\/g, '/')}`,
           PYTHONIOENCODING: 'utf-8',
           PYTHONUTF8: '1',
         },
