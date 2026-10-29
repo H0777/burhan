@@ -67,7 +67,12 @@ def get_rpc_provider():
 def get_evidence_store() -> EvidenceStore:
     global _evidence_store
     if _evidence_store is None:
-        _evidence_store = EvidenceStore()
+        # H06: KEY_PROVIDER=vault wires the KMS-backed KeyProvider; with the
+        # variable unset this constructs provider-less exactly as before
+        # (signing/wrapping fail closed until custody is configured).
+        from app.security.kms_provider import build_key_provider_from_settings
+
+        _evidence_store = EvidenceStore(key_provider=build_key_provider_from_settings())
     return _evidence_store
 
 

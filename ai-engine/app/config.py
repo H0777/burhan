@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     )
     MAX_EVIDENCE_SIZE_BYTES: int = 25 * 1024 * 1024  # 25 MB
 
+    # KMS key custody (H06): 'vault' activates the KMS-backed KeyProvider
+    # (HashiCorp Vault Transit) behind the R05 KeyProvider ABC. Empty keeps
+    # the historical behaviour (no provider -> signing/wrapping fail closed;
+    # the demo seed-file provider is mounted explicitly where used, never
+    # inferred here). VAULT_TOKEN arrives via gitignored environment only.
+    KEY_PROVIDER: str = ""
+    VAULT_ADDR: str = "http://127.0.0.1:8200"
+    VAULT_TOKEN: str = ""
+    KMS_CURRENT_KEYS: str = "{}"  # ops-managed registry {"institution_id": "key_id"} (JSON)
+    KMS_TIMEOUT_SECONDS: float = 5.0
+
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",

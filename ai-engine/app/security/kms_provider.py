@@ -405,3 +405,49 @@ class KmsProvider(KeyProvider):
         if not dek:
             raise ValueError("unwrapped DEK is empty")
         return dek
+
+
+def build_key_provider_from_settings():
+    """Opt-in engine wiring (H06): construct the KeyProvider from settings.
+
+    - ``KEY_PROVIDER`` empty/``none`` -> ``None`` (historical behaviour: the
+      evidence store runs provider-less and signing/wrapping fail closed).
+    - ``KEY_PROVIDER=vault`` -> a :class:`KmsProvider` configured from
+      ``VAULT_ADDR``/``VAULT_TOKEN``/``KMS_CURRENT_KEYS`` (all from the
+      gitignored environment). Misconfiguration raises at startup rather
+      than degrading to file-based keys — there is NO file fallback here.
+
+    The Vault Transit mount is enabled idempotently; key material for key
+    GENERATIONS is created by the ceremony (``ops/key-ceremony.md``), never
+    by application startup.
+    """
+    import json
+
+    from app.config import settings
+
+    mode = (settings.KEY_PROVIDER or "").strip().lower()
+    if mode in ("", "none"):
+        return None
+    if mode != "vault":
+        raise RuntimeError(
+            f"unknown KEY_PROVIDER {settings.KEY_PROVIDER!r} (supported: 'vault')"
+        )
+    if not settings.VAULT_TOKEN:
+        raise RuntimeError("KEY_PROVIDER=vault requires VAULT_TOKEN in the environment")
+    try:
+        registry = json.loads(settings.KMS_CURRENT_KEYS or "{}")
+    except ValueError as exc:
+        raise RuntimeError("KMS_CURRENT_KEYS must be valid JSON") from exc
+    if not isinstance(registry, dict):
+        raise RuntimeError("KMS_CURRENT_KEYS must be a JSON object {institution_id: key_id}")
+    for inst, kid in registry.items():
+        _validate_component(inst, "KMS_CURRENT_KEYS institution_id")
+        _validate_component(str(kid), "KMS_CURRENT_KEYS key_id")
+    provider = KmsProvider(
+        settings.VAULT_ADDR,
+        settings.VAULT_TOKEN,
+        {str(k): str(v) for k, v in registry.items()},
+        timeout=float(settings.KMS_TIMEOUT_SECONDS),
+    )
+    provider._ensure_transit()
+    return provider
