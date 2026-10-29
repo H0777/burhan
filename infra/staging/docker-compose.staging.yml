@@ -137,6 +137,7 @@ services:
       EVIDENCE_STORE_PATH: /app/data/evidence
     volumes:
       - ../../deployments:/app/deployments:ro
+      - ../../shared:/app/shared:ro
       - staging_evidence:/app/data/evidence
     depends_on:
       postgres:
@@ -163,6 +164,7 @@ services:
     command: python -m app.workers.runner anchor
     volumes:
       - ../../deployments:/app/deployments:ro
+      - ../../shared:/app/shared:ro
       - staging_evidence:/app/data/evidence
     depends_on:
       postgres:
@@ -187,6 +189,7 @@ services:
     command: python -m app.workers.runner indexer
     volumes:
       - ../../deployments:/app/deployments:ro
+      - ../../shared:/app/shared:ro
       - staging_evidence:/app/data/evidence
     depends_on:
       postgres:
