@@ -541,6 +541,14 @@ RLS_TABLES = [
     "chain_submissions",
     "case_incident_mappings",
     "worker_heartbeats",
+    # r07 (0003_r07_verification_snapshots.py) creates this tenant table directly
+    # via migration — ENABLE+FORCE RLS + tenant_isolation_policy are applied
+    # there. It has no ORM model (consumed via raw SQL in
+    # services/evidence_verifier.py), but the models-side enumeration must
+    # still cover the institutional surface. Found missing on the H04 staging
+    # stack when the full RLS suite ran against real PostgreSQL at head
+    # outbox_delivery.
+    "verification_snapshots",
 ]
 
 # Global table: RLS enabled with an explicit policy — never assumed safe merely
