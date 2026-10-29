@@ -1,0 +1,74 @@
+{
+  "_comment": "H05 provisioning-as-code: the staging institutional realm, imported at container start (--import-realm). NO USERS, NO SECRETS in this file: the operator identity and its password are provisioned by the one-shot keycloak-provision-operator service from gitignored infra/staging/.env variables. Client registration contract (runbook, docs/verification/program/staging-h05.md): public client 'iraq-aml-frontend', Authorization Code + PKCE S256 (enforced), redirect_uri http://127.0.0.1:18080/auth/callback (the nginx origin), scope openid profile email; an audience mapper adds aud 'iraq-aml-audit-engine' to access tokens (the engine's OIDC_AUDIENCE) and a user-attribute mapper forwards the user's institution_id attribute into verified claims (R10 resolve_identity routes the membership lookup by it). sslRequired=none because the realm is served on loopback-only HTTP (host port 127.0.0.1:18081, container-internal 8080); nothing is published on 0.0.0.0.",
+  "realm": "burhan",
+  "displayName": "Burhan AML Audit Chain (staging)",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "verifyEmail": false,
+  "rememberMe": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "accessTokenLifespan": 900,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "clients": [
+    {
+      "clientId": "iraq-aml-frontend",
+      "name": "Burhan institutional frontend (public, PKCE)",
+      "description": "Authorization Code + PKCE only: no client_secret, no password grant, no implicit flow (spec section 8).",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "surrogateAuthRequired": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "http://127.0.0.1:18080/auth/callback"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:18080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://127.0.0.1:18080"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience: iraq-aml-audit-engine",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included-client-audience": "iraq-aml-audit-engine",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "institution_id (user attribute -> verified claim)",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "institution_id",
+            "claim.name": "institution_id",
+            "jsonType.label": "String",
+            "multivalued": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

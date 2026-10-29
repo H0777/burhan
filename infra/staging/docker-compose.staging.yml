@@ -18,10 +18,14 @@
 # secret is committed. Start with:
 #   docker compose --env-file infra/staging/.env -f infra/staging/docker-compose.staging.yml up -d --build
 #
-# OIDC: APP_MODE=institutional requires OIDC_ENABLED=true with issuer/audience/
-# JWKS declared. The declared provider is an HONEST PLACEHOLDER (a
-# non-resolvable staging hostname) — the real Keycloak lands in H05. No fake
-# provider is stood up here; authenticated API/UI flows are pending-H05.
+# OIDC (H05): APP_MODE=institutional runs against a REAL provider — Keycloak
+# (realm "burhan") in this stack, host-facing on loopback 127.0.0.1:18081 only.
+# The realm is imported at start from infra/staging/keycloak/realm-burhan.json
+# (provisioning-as-code, no users/no secrets); the staging operator identity and
+# the membership row are provisioned by the one-shot keycloak-provision-operator
+# service from gitignored infra/staging/.env variables. The engine verifies
+# tokens from the browser-facing issuer URL (request-derived iss, exactly
+# STAGING_OIDC_ISSUER) and fetches JWKS service-to-service (issuer-independent).
 
 name: iraq-aml-staging
 
@@ -158,13 +162,14 @@ services:
     container_name: aml_staging_engine
     environment:
       APP_MODE: institutional
-      # Declared placeholder pending H05 (real Keycloak): the R10 startup gate
-      # requires these to be present; the issuer/JWKS hostname is intentionally
-      # non-resolvable until H05 wires the real provider.
+      # H05: REAL institutional provider — Keycloak realm "burhan" in this stack.
+      # OIDC_ISSUER must EXACTLY match the iss claim Keycloak issues (the
+      # request-derived browser-facing origin, loopback 18081). The JWKS fetch
+      # is service-to-service over the compose network (issuer-independent).
       OIDC_ENABLED: "true"
-      OIDC_ISSUER: ${STAGING_OIDC_ISSUER:-https://keycloak.staging.iraq-aml.invalid/realms/iraq-aml}
+      OIDC_ISSUER: ${STAGING_OIDC_ISSUER:-http://127.0.0.1:18081/realms/burhan}
       OIDC_AUDIENCE: iraq-aml-audit-engine
-      OIDC_JWKS_URL: ${STAGING_OIDC_JWKS_URL:-https://keycloak.staging.iraq-aml.invalid/realms/iraq-aml/protocol/openid-connect/certs}
+      OIDC_JWKS_URL: ${STAGING_OIDC_JWKS_URL:-http://keycloak:8080/realms/burhan/protocol/openid-connect/certs}
       DATABASE_URL: postgresql+psycopg://ira_aml_app:${STAGING_APP_PASSWORD:?}@postgres:5432/iraq_aml_staging
       BLOCKCHAIN_RPC_URL: http://hardhat-node:8545
       INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
@@ -185,6 +190,8 @@ services:
         condition: service_completed_successfully
       db-seed-institutions:
         condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
     restart: unless-stopped
 
   # 6. Anchor worker (R08 entrypoint) — signs outbox anchors with the key from
@@ -253,6 +260,65 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # 7b. Keycloak — the REAL institutional OIDC provider (H05), realm "burhan",
+  #     imported at start from infra/staging/keycloak/realm-burhan.json
+  #     (provisioning-as-code; no users, no secrets in the committed file).
+  #     Host-facing on loopback 18081 ONLY: the browser-facing issuer origin is
+  #     http://127.0.0.1:18081/realms/burhan (Keycloak derives iss from the
+  #     request Host, so tokens carry exactly the issuer the engine verifies).
+  #     The engine fetches JWKS service-to-service (issuer-independent).
+  #     Dev-file H2 state persists in the staging_keycloak_data volume; the
+  #     operator identity is (re)provisioned idempotently by the one-shot below.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: aml_staging_keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${STAGING_KEYCLOAK_ADMIN_USERNAME:-staging-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${STAGING_KEYCLOAK_ADMIN_PASSWORD:?set STAGING_KEYCLOAK_ADMIN_PASSWORD in infra/staging/.env}
+    volumes:
+      - ./keycloak/realm-burhan.json:/opt/keycloak/data/import/realm-burhan.json:ro
+      - staging_keycloak_data:/opt/keycloak/data
+    ports:
+      - "127.0.0.1:18081:8080"   # loopback-only: browser + host test suites
+    healthcheck:
+      # bash /dev/tcp probe of the realm discovery document (portable across
+      # image variants without curl/wget). Healthy == realm "burhan" is served.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /realms/burhan/.well-known/openid-configuration HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q issuer <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+  # 7c. One-shot operator provisioning (idempotent): Keycloak user (secret from
+  #     gitignored infra/staging/.env) + the ACTIVE membership row (OWNER role,
+  #     transaction-local tenant context). The engine never seeds memberships
+  #     (R10/R11) — this is an operator duty, automated here for staging.
+  keycloak-provision-operator:
+    image: iraq-aml/staging-engine:h04
+    container_name: aml_staging_keycloak_provisioner
+    environment:
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_USERNAME: ${STAGING_KEYCLOAK_ADMIN_USERNAME:-staging-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${STAGING_KEYCLOAK_ADMIN_PASSWORD:?}
+      STAGING_KEYCLOAK_REALM: burhan
+      STAGING_OIDC_USERNAME: ${STAGING_OIDC_USERNAME:-staging-operator}
+      STAGING_OIDC_USER_PASSWORD: ${STAGING_OIDC_USER_PASSWORD:?set STAGING_OIDC_USER_PASSWORD in infra/staging/.env}
+      STAGING_INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
+      MIGRATION_DATABASE_URL: postgresql+psycopg://ira_aml_migrator:${STAGING_MIGRATOR_PASSWORD:?}@postgres:5432/iraq_aml_staging
+    volumes:
+      - ../../ops/keycloak/provision_staging_operator.py:/ops/provision_staging_operator.py:ro
+    command: python /ops/provision_staging_operator.py
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
+      db-seed-institutions:
+        condition: service_completed_successfully
+    restart: "no"
+
   # 8. Frontend via nginx — the ONLY host-facing interface (loopback 18080).
   #    The staging runtime-config.json is mounted over the built one so the
   #    tracked frontend/public/runtime-config.json is never modified.
@@ -275,3 +341,4 @@ volumes:
   staging_pg_data:
   staging_node_modules:
   staging_evidence:
+  staging_keycloak_data:

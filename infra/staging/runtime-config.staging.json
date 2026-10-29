@@ -15,7 +15,7 @@
     "AuditEngine": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
   },
   "oidc": {
-    "authority": "https://keycloak.staging.iraq-aml.invalid/realms/iraq-aml",
+    "authority": "http://127.0.0.1:18081/realms/burhan",
     "client_id": "iraq-aml-frontend",
     "redirect_uri": "http://127.0.0.1:18080/auth/callback",
     "scope": "openid profile email"
