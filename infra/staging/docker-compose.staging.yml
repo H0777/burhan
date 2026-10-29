@@ -64,7 +64,10 @@ services:
     ports:
       - "127.0.0.1:18545:8545"   # loopback-only: E2E runner + operator RPC
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "8545"]
+      # 127.0.0.1, NOT localhost: in node:20-alpine (musl) localhost resolves to
+      # ::1 while hardhat binds IPv4-only — the demo compose's identical check
+      # has this latent bug (verified here: NC-FAIL(localhost) vs IPV4-OK).
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8545"]
       interval: 5s
       timeout: 5s
       retries: 60
