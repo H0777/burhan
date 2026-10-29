@@ -36,8 +36,17 @@ async def lifespan(app: FastAPI):
     validate_startup_config()
     from app.db.session import init_db
     try:
-        init_db()
-        print("[AI-Engine] Database schema initialized.")
+        # PostgreSQL/institutional: init_db() VERIFIES the alembic head and
+        # returns the revision — it never creates tables (create_all/seed are
+        # confined to the SQLite dev/demo path, R11). The logged distinction is
+        # the startup-level proof required by the staging task (H04).
+        revision = init_db()
+        if revision is None:
+            print("[AI-Engine] SQLite dev/demo schema initialized via create_all "
+                  "(production/institutional NEVER takes this path).")
+        else:
+            print(f"[AI-Engine] PostgreSQL schema verified at alembic head "
+                  f"{revision}; create_all NOT called (migrations own the schema).")
     except Exception as e:
         print(f"[AI-Engine] Database initialization note: {e}")
     yield

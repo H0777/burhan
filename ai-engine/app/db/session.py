@@ -134,23 +134,25 @@ def verify_schema_revision(engine: Optional[Engine] = None) -> str:
     return current
 
 
-def init_db(engine: Optional[Engine] = None) -> None:
+def init_db(engine: Optional[Engine] = None) -> Optional[str]:
     """
     Startup database initialization (R11).
 
     PostgreSQL (production/institutional path): verifies the schema is migrated to
     the alembic head and nothing else — migrations own the schema; create_all and
-    seeding are never called here.
+    seeding are never called here. Returns the verified revision string so the
+    startup log can PROVE the migration-owned path was taken (H04).
 
     SQLite (local dev/demo/test ONLY): creates tables and seeds the demo
     institution, which is where schema bootstrap is confined per spec §8.
+    Returns None (create_all path).
     """
     eng = engine or get_engine()
     if eng.dialect.name != "postgresql":
         Base.metadata.create_all(bind=eng)
         _seed_demo_institution(eng)
-        return
-    verify_schema_revision(eng)
+        return None
+    return verify_schema_revision(eng)
 
 
 def _seed_demo_institution(eng: Engine) -> None:
