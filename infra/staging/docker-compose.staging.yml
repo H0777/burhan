@@ -112,6 +112,41 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  # 4b. One-shot migration: alembic upgrade head runs IN the staging cluster with
+  #     the dedicated MIGRATION role (never the app role, never the superuser).
+  #     The engine refuses to start until this completes (verify_schema_revision).
+  db-migrate:
+    image: iraq-aml/staging-engine:h04
+    build:
+      context: ../../ai-engine
+      dockerfile: Dockerfile
+    container_name: aml_staging_db_migrate
+    environment:
+      MIGRATION_DATABASE_URL: postgresql+psycopg://ira_aml_migrator:${STAGING_MIGRATOR_PASSWORD:?}@postgres:5432/iraq_aml_staging
+    command: python -m alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # 4c. One-shot institution registry bootstrap (operator duty — the engine NEVER
+  #     seeds on PostgreSQL, R11): provisions the staging institution row. Run as
+  #     the migration role, the owner of institutions (RLS-ENABLED, not FORCEd,
+  #     so the owner may write the global registry; all data tables stay
+  #     app-role-only).
+  db-seed-institutions:
+    image: postgres:16-alpine
+    container_name: aml_staging_db_seed
+    environment:
+      PGPASSWORD: ${STAGING_MIGRATOR_PASSWORD:?}
+    command: >-
+      psql -h postgres -U ira_aml_migrator -d iraq_aml_staging -v ON_ERROR_STOP=1
+      -c "INSERT INTO institutions (id, name, is_active) VALUES ('${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}', 'Staging Institution', true) ON CONFLICT (id) DO NOTHING;"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   # 5. AI engine — APP_MODE=institutional, PostgreSQL via the LEAST-PRIVILEGE
   #    app role (never the migrator, never a superuser). No host port: reachable
   #    only through the nginx frontend proxy.
@@ -146,6 +181,10 @@ services:
         condition: service_healthy
       contract-deployer:
         condition: service_completed_successfully
+      db-migrate:
+        condition: service_completed_successfully
+      db-seed-institutions:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # 6. Anchor worker (R08 entrypoint) — signs outbox anchors with the key from
@@ -173,6 +212,10 @@ services:
         condition: service_healthy
       contract-deployer:
         condition: service_completed_successfully
+      db-migrate:
+        condition: service_completed_successfully
+      db-seed-institutions:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   # 7. Indexer worker (R08 entrypoint) — ingests chain events + heartbeats.
@@ -197,6 +240,10 @@ services:
       hardhat-node:
         condition: service_healthy
       contract-deployer:
+        condition: service_completed_successfully
+      db-migrate:
+        condition: service_completed_successfully
+      db-seed-institutions:
         condition: service_completed_successfully
     restart: unless-stopped
 
