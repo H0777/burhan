@@ -261,7 +261,10 @@ class EvidenceStore:
         while True:
             if current.is_symlink():
                 raise ValueError(f"symlink detected in vault path: {current}")
-            if current.is_junction():
+            # is_junction() exists on WindowsPath only (PosixPath has no such
+            # attribute); junctions are a Windows concept, so gating the check
+            # on the host OS preserves identical semantics on both platforms.
+            if os.name == "nt" and current.is_junction():
                 raise ValueError(f"symlink/junction detected in vault path: {current}")
             if current == self.base_dir:
                 return
