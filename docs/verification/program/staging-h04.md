@@ -209,7 +209,12 @@ Operational (non-engine) differences/gaps found and fixed on the way:
   refresh every cycle in `worker_heartbeats`; `checkpoints` row advances
   (last_canonical_block tracked to block 133 on chain 31337).
 * `docker ps` final state: postgres healthy, evm healthy, engine healthy,
-  frontend healthy, workers up (no healthcheck by design).
+  frontend up (image-level `wget localhost` healthcheck reports unhealthy —
+  same musl/IPv6 class as finding 5: musl resolves `localhost` to `::1`, the
+  nginx `listen 3000` is IPv4-only; the service itself is fully functional —
+  readiness 200 through it — and the healthcheck lives in the demo frontend
+  Dockerfile, intentionally untouched here), workers up (image healthcheck
+  disabled in compose, `fb0da93`; no HTTP server by design).
 
 ## 8. E2E validation — exactly what was and was not covered
 
