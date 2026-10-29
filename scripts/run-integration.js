@@ -95,15 +95,20 @@ async function main() {
   console.log('Starting G1 Trust Flow End-to-End Integration Runner');
   console.log('====================================================');
 
-  // Ensure clean test database for reproducible integration run
-  const testDbPath = path.join(ROOT_DIR, 'test-results', 'integration.db');
+  // Integration database — must live OUTSIDE Playwright's default
+  // `test-results/` output dir: Playwright deletes and recreates that dir
+  // when the run starts, which unlinks the SQLite file the engine already
+  // holds open. Reads keep working through the open fd, but SQLite then
+  // fails every write with "attempt to write a readonly database"
+  // (the Linux-only 1.5 CSV-ingestion failure).
+  const testDbPath = path.join(ROOT_DIR, '.integration-tmp', 'integration.db');
   if (fs.existsSync(testDbPath)) {
     try {
       fs.unlinkSync(testDbPath);
     } catch {}
   }
   // SQLite cannot create parent directories itself; on a fresh CI runner
-  // test-results/ does not exist and the engine's DB open fails with
+  // the parent does not exist and the engine's DB open fails with
   // "unable to open database file" (Linux), leaving /health/ready at 503.
   fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
 
