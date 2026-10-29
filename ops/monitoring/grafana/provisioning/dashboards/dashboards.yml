@@ -1,0 +1,16 @@
+# H07 Grafana dashboard provider — watches the mounted ops/monitoring/dashboards/
+# directory (bind-mounted at /var/lib/grafana/dashboards in the compose
+# override). JSON dashboards are the only source of truth; no manual saves.
+apiVersion: 1
+
+providers:
+  - name: burhan-staging
+    orgId: 1
+    folder: Burhan Staging
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

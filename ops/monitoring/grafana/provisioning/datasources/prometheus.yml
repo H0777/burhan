@@ -1,0 +1,13 @@
+# H07 Grafana datasource provisioning — the staging Prometheus, by service
+# name over the compose internal network. Applied automatically at Grafana
+# start (provisioning-as-code; nothing configured by hand in the UI).
+apiVersion: 1
+
+datasources:
+  - name: Burhan Staging Prometheus
+    uid: burhan-prom
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

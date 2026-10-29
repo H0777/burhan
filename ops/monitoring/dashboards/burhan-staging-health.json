@@ -1,0 +1,358 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "H07 golden metrics for the Burhan staging stack: worker heartbeats (R08 worker_heartbeats), oldest outbox age, readiness latency/failures, EVM RPC errors, confirmation depth, case-query p95, upload rejection rate, HTTP 5xx ratio. Sources: ai-engine /internal/metrics (no PII).",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "Age of the freshest heartbeat per worker role (SQL-clock, from worker_heartbeats). Alert threshold 120s (BurhanWorkerHeartbeatStale).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 120 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "burhan_worker_heartbeat_age_seconds",
+          "legendFormat": "{{role}} @{{institution}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Worker heartbeat age by role (alert >120s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "Age of the oldest outbox event still PENDING/PROCESSING — the anchor delivery pipeline. Alert threshold 300s (BurhanOutboxOldestPendingStale).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 300 }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "burhan_outbox_oldest_pending_age_seconds",
+          "legendFormat": "oldest pending @{{institution}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Oldest outbox pending age (alert >300s)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "HTTP 5xx ratio over 5m (all route templates). Alert threshold 1% (BurhanHTTP5xxRatioHigh).",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "sum(rate(burhan_http_responses_total{code=~\"5..\"}[5m])) / sum(rate(burhan_http_responses_total[5m]))",
+          "legendFormat": "5xx ratio",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP 5xx ratio 5m (alert >1%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "Submissions not yet CONFIRMED (SIGNED + BROADCAST) — confirmation depth — plus the observed chain head from the scrape-time RPC probe.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 25, "showPoints": "never" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "chain head" },
+            "properties": [
+              { "id": "unit", "value": "none" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 7 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "sum by (institution) (burhan_chain_submissions_awaiting_confirmation)",
+          "legendFormat": "awaiting confirmation @{{institution}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "burhan_evm_block_number",
+          "legendFormat": "chain head",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Confirmation depth (submissions awaiting receipt)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "Readiness check latency (p95) and 503 failures (3+ in 5m alerts: BurhanReadinessRepeated503). Read-only mirror of R15 /ready — never changes its semantics.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 20, "showPoints": "never" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "readiness 503/s" },
+            "properties": [
+              { "id": "unit", "value": "ops" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 7 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(burhan_readiness_latency_seconds_bucket[5m])))",
+          "legendFormat": "readiness p95",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "sum(rate(burhan_readiness_failures_total[5m]))",
+          "legendFormat": "readiness 503/s",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Readiness latency p95 + 503 failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "Case query latency p95 over /api/v2/cases* route templates.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 20, "showPoints": "never" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(burhan_http_request_duration_seconds_bucket{path=~\"/api/v2/cases.*\"}[5m])))",
+          "legendFormat": "cases p95",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Case query latency p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "Evidence upload rejections (4xx) per second on the upload route templates.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 30, "showPoints": "never" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "sum by (path) (rate(burhan_upload_rejections_total[5m]))",
+          "legendFormat": "rejected {{path}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Upload rejection rate (4xx on upload routes)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+      "description": "EVM RPC health: scrape-probe success/latency, terminal listener RPC failures by operation, outbox events per R08 delivery state, metrics DB read success.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 25, "showPoints": "never" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "rpc probe ok" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "outbox events" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.axisPlacement", "value": "right" }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 21 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "sum by (op) (rate(burhan_rpc_errors_total[5m]))",
+          "legendFormat": "rpc errors {{op}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "burhan_rpc_probe_success",
+          "legendFormat": "rpc probe ok",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "burhan_rpc_probe_latency_seconds",
+          "legendFormat": "rpc probe latency",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "sum by (status) (burhan_outbox_events)",
+          "legendFormat": "outbox {{status}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "burhan-prom" },
+          "expr": "burhan_metrics_db_up",
+          "legendFormat": "metrics db up",
+          "range": true,
+          "refId": "E"
+        }
+      ],
+      "title": "RPC health, outbox pipeline states, metrics DB up",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["burhan", "staging", "h07"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Burhan Staging — System Health (H07)",
+  "uid": "burhan-staging-health",
+  "version": 1,
+  "weekStart": ""
+}
