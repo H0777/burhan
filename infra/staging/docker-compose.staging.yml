@@ -201,6 +201,9 @@ services:
       DEPLOYMENT_MANIFEST_PATH: /app/deployments/deployment-manifest.json
       EVIDENCE_STORE_PATH: /app/data/evidence
     command: python -m app.workers.runner anchor
+    # no HTTP server: disable the image-level healthcheck
+    healthcheck:
+      disable: true
     volumes:
       - ../../deployments:/app/deployments:ro
       - ../../shared:/app/shared:ro
@@ -230,6 +233,9 @@ services:
       DEPLOYMENT_MANIFEST_PATH: /app/deployments/deployment-manifest.json
       EVIDENCE_STORE_PATH: /app/data/evidence
     command: python -m app.workers.runner indexer
+    # no HTTP server: disable the image-level healthcheck
+    healthcheck:
+      disable: true
     volumes:
       - ../../deployments:/app/deployments:ro
       - ../../shared:/app/shared:ro
