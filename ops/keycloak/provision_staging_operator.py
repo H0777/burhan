@@ -190,6 +190,20 @@ def _upsert_membership(sub: str) -> None:
                     {"role": MEMBERSHIP_ROLE, "email": USER_EMAIL, "id": row[0]},
                 )
                 print(f"[provisioner] membership re-activated (idempotent re-run): role={MEMBERSHIP_ROLE}")
+            # Deactivate stale memberships of this institution: after a Keycloak
+            # data-volume wipe the realm is re-imported and the operator's subject
+            # changes — no token will ever carry the dead subs again, and an
+            # active membership for a subject nobody can authenticate as must not
+            # linger (staging hygiene, single-operator realm).
+            stale = conn.execute(
+                text(
+                    "UPDATE memberships SET is_active = false "
+                    "WHERE institution_id = :inst_id AND sub <> :sub AND is_active = true"
+                ),
+                {"inst_id": INSTITUTION_ID, "sub": sub},
+            ).rowcount
+            if stale:
+                print(f"[provisioner] deactivated {stale} stale membership row(s) (dead subs)")
     finally:
         engine.dispose()
 
