@@ -148,10 +148,13 @@ async function main() {
 
   // 3. Check or start Python FastAPI AI Engine
   const apiRunning = await checkHttp(`http://127.0.0.1:${API_PORT}/api/v2/health/ready`);
+  // Function-scoped so the failure-path log dump below can read it even when
+  // the engine was freshly spawned inside this block.
+  let apiLogs = '';
   if (!apiRunning) {
     console.log(`[3/4] Spawning Python FastAPI Engine on port ${API_PORT}...`);
     const pythonRunner = path.join(ROOT_DIR, 'scripts', 'run-python.js');
-    let apiLogs = '';
+    apiLogs = '';
     apiProcess = spawn(
       process.execPath,
       [
