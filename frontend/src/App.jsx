@@ -11,6 +11,9 @@ import { CaseWorkspace } from './components/CaseWorkspace'
 import { SystemDiagnosticModal } from './components/SystemDiagnosticModal'
 import { LiveExecutionDrawer } from './components/LiveExecutionDrawer'
 import { useAuditEngine } from './hooks/useAuditEngine'
+import { useAuth } from './auth/AuthProvider'
+import { LoginScreen, OidcCallbackHandler } from './auth/LoginScreen'
+import { AUTH_CALLBACK_PATH } from './auth/oidcClient'
 import { checkAIHealth, scoreTransactionRisk } from './utils/aiClient'
 import { shortAddress } from './utils/contract'
 import { formatIQD } from './utils/currency'
@@ -64,6 +67,13 @@ export default function App() {
     resetDemoState,
     importBankingCSV,
   } = useAuditEngine()
+
+  // H05/R13 — institutional identity loop wiring. In institutional mode the
+  // R13 PKCE components become the app's entry surface: /auth/callback runs
+  // the state/nonce-bound signinCallback; an unauthenticated session shows the
+  // institutional login screen instead of the console. Demo mode is untouched
+  // (isInstitutional false -> both components render null -> existing behavior).
+  const auth = useAuth()
 
   // App & Language State (Default Arabic for Iraqi Banking & Judicial Context)
   const [lang, setLang] = useState('ar')
@@ -244,6 +254,30 @@ export default function App() {
     await clearTransaction(txId)
     setToastMsg(isRtl ? `تم اعتماد وتبرئة العملية #${txId} رسمياً!` : `Transaction #${txId} cleared!`)
     setTimeout(() => setToastMsg(''), 4000)
+  }
+
+  // Institutional identity gate (after every hook — the early returns below are
+  // unconditional per render): institutional mode NEVER renders the console
+  // without a resolved identity (spec section 8).
+  if (auth.isInstitutional) {
+    if (window.location.pathname === AUTH_CALLBACK_PATH) {
+      return <OidcCallbackHandler onDone={() => window.location.replace('/')} />
+    }
+    if (auth.isLoading) {
+      return (
+        <div
+          dir={isRtl ? 'rtl' : 'ltr'}
+          data-testid="identity-loading"
+          className="min-h-screen flex items-center justify-center"
+          style={{ background: '#0b1120', color: '#94a3b8', fontFamily: 'system-ui, sans-serif' }}
+        >
+          <p className="text-sm">جاري التحقق من الهوية المؤسسية...</p>
+        </div>
+      )
+    }
+    if (!auth.identity) {
+      return <LoginScreen />
+    }
   }
 
   return (
