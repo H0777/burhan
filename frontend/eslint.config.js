@@ -1,10 +1,14 @@
 import js from '@eslint/js'
 import globals from 'globals'
+import react from 'eslint-plugin-react'
 
 export default [
   js.configs.recommended,
   {
     files: ['src/**/*.{js,jsx}'],
+    plugins: {
+      react,
+    },
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -25,6 +29,11 @@ export default [
       },
     },
     rules: {
+      // Marks JSX component/icon names as variable usages so no-unused-vars
+      // stops false-positive warnings on imports only rendered in JSX.
+      // Intentionally minimal: the react/recommended stylistic rule families
+      // are NOT enabled.
+      'react/jsx-uses-vars': 'warn',
       'no-unused-vars': [
         'warn',
         {
