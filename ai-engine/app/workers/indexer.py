@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
 
 from app.db.models import ChainEventRecord, CheckpointRecord, WorkerHeartbeat
+from app.db.session import apply_tenant_context
 from app.services.chain_registry import ChainRegistry
 from app.services.blockchain_listener import BlockchainListener
 
@@ -64,7 +65,14 @@ class BlockchainIndexerWorker:
         detail: Optional[Dict[str, Any]] = None,
     ) -> WorkerHeartbeat:
         """Per-worker heartbeat (R08): one row per (institution, worker, role),
-        refreshed every cycle. `clock` is injectable for tests."""
+        refreshed every cycle. `clock` is injectable for tests.
+
+        H04 (PostgreSQL): re-applies the transaction-local tenant context first.
+        The runner calls this AFTER run_indexer_step committed — set_config
+        (is_local => true) evaporates at COMMIT, so without re-application every
+        heartbeat write would run context-less and fail FORCE RLS on real
+        PostgreSQL (SQLite logic tests cannot see this)."""
+        apply_tenant_context(session, institution_id)
         now = clock() if callable(clock) else datetime.now(timezone.utc)
         hb = session.execute(
             select(WorkerHeartbeat).where(
@@ -211,7 +219,15 @@ class BlockchainIndexerWorker:
         """
         Executes one atomic indexing step over bounded block range.
         Commits events and checkpoint together in a single transaction.
+
+        H04 (PostgreSQL): opens its first transaction segment by applying the
+        transaction-local tenant context — under FORCE RLS the checkpoint and
+        chain_event writes are impossible for the least-privilege app role
+        otherwise. `apply_tenant_context` is a no-op on SQLite. Both internal
+        commits (early-return and main paths) close the segment; the context is
+        re-applied by the next unit (record_heartbeat in the runner).
         """
+        apply_tenant_context(session, institution_id)
         clean_addr = contract_address.lower()
         checkpoint = self.get_or_create_checkpoint(
             session=session,

@@ -171,6 +171,33 @@ def _seed_demo_institution(eng: Engine) -> None:
             session.commit()
 
 
+def apply_tenant_context(session: Session, institution_id: str) -> None:
+    """
+    (Re)apply the transaction-local tenant context on `session` (H04).
+
+    `tenant_transaction` scopes one WHOLE unit of work. Background workers that
+    manage their own transaction boundaries (the indexer commits mid-step) must
+    re-apply the context at the start of every new transaction segment:
+    set_config(..., is_local => true) evaporates at COMMIT, and on PostgreSQL
+    every later statement would otherwise run context-less under FORCE RLS.
+    On SQLite this is a no-op (no server-side tenant context).
+    """
+    if not institution_id or not isinstance(institution_id, str):
+        raise ValueError("Valid institution_id required for apply_tenant_context")
+
+    inst_id = institution_id.strip()
+    # Shared validation type for the institutional tenant context.
+    TenantContext(inst_id)
+
+    bind = session.get_bind()
+    if bool(bind) and bind.dialect.name == "postgresql":
+        with session.no_autoflush:
+            session.execute(
+                text("SELECT set_config('app.current_institution_id', :inst_id, true)"),
+                {"inst_id": inst_id},
+            )
+
+
 @contextmanager
 def tenant_transaction(session: Session, institution_id: str) -> Generator[Session, None, None]:
     """
