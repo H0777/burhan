@@ -17,6 +17,19 @@ from app.config import settings
 logger = logging.getLogger("BlockchainListener")
 
 
+def _count_rpc_error() -> None:
+    """H07: count a terminal JSON-RPC failure (op="listener"). The counter
+    lives in the importing process: visible in the ENGINE's /internal/metrics
+    for engine-side RPC traffic; worker processes keep their own registries
+    (documented in docs/verification/program/staging-h07.md)."""
+    try:
+        from app.observability import RPC_ERRORS_TOTAL
+
+        RPC_ERRORS_TOTAL.labels(op="listener").inc()
+    except Exception:  # metrics must never break RPC handling
+        pass
+
+
 class RpcRateLimitError(Exception):
     pass
 
@@ -59,6 +72,7 @@ class BlockchainListener:
                 resp = self.client.post(self.rpc_url, json=payload)
                 if resp.status_code == 429:
                     if attempt == retries - 1:
+                        _count_rpc_error()
                         raise RpcRateLimitError(f"RPC Provider rate limited after {retries} retries")
                     time.sleep(backoff)
                     backoff *= 2
@@ -66,6 +80,7 @@ class BlockchainListener:
 
                 if resp.status_code != 200:
                     logger.debug(f"RPC HTTP error {resp.status_code}: {resp.text}")
+                    _count_rpc_error()
                     return None
 
                 res_json = resp.json()
@@ -73,17 +88,20 @@ class BlockchainListener:
                     err_msg = str(res_json["error"])
                     if "rate limit" in err_msg.lower() or "too many requests" in err_msg.lower():
                         if attempt == retries - 1:
+                            _count_rpc_error()
                             raise RpcRateLimitError(err_msg)
                         time.sleep(backoff)
                         backoff *= 2
                         continue
                     logger.debug(f"RPC error response: {res_json['error']}")
+                    _count_rpc_error()
                     return None
 
                 return res_json.get("result")
             except httpx.RequestError as exc:
                 logger.debug(f"RPC connection error on {method}: {exc}")
                 if attempt == retries - 1:
+                    _count_rpc_error()
                     return None
                 time.sleep(backoff)
                 backoff *= 2

@@ -21,6 +21,7 @@ from app.routes.v2 import risk as risk_v2
 from app.routes.v2 import reports as reports_v2
 from app.routes.v2 import scanner as scanner_v2
 from app.routes.v3 import evidence as evidence_v3
+from app.routes.internal import metrics as metrics_internal
 from app.config import settings
 
 
@@ -73,6 +74,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# H07: no-PII HTTP observability (outermost — counts every response with
+# route-template labels only; see app/observability.py).
+from app.observability import ObservabilityMiddleware  # noqa: E402
+app.add_middleware(ObservabilityMiddleware)
+
 
 @app.middleware("http")
 async def _log_unhandled_exceptions(request: Request, call_next):
@@ -119,6 +125,8 @@ app.include_router(reports_v2.router, prefix="/api/v2", tags=["Reports V2"])
 app.include_router(scanner_v2.router, prefix="/api/v2/scanner", tags=["Scanner V2"])
 # R07 (spec §5): V3 verification — identifiers only, pinned chain snapshots
 app.include_router(evidence_v3.router, prefix="/api/v3/evidence", tags=["Evidence V3"])
+# H07: internal observability — Prometheus scrape target, compose-internal only
+app.include_router(metrics_internal.router, tags=["Internal"])
 
 
 @app.get("/api/v1/health", tags=["System"])

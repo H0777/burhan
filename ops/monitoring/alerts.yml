@@ -1,0 +1,82 @@
+# ops/monitoring/alerts.yml (H07) — Burhan staging alert rules.
+#
+# The four brief-mandated alerts. Every rule carries a `runbook` annotation
+# pointing at the response runbook in docs/runbooks/. Detection lag budget:
+# 5s scrape + 5s evaluation, so threshold-crossing alerts fire within ~10s
+# of the metric crossing its threshold.
+#
+# Validate with promtool (run inside the prometheus container):
+#   docker exec aml_staging_prometheus promtool check rules /etc/prometheus/alerts.yml
+
+groups:
+  - name: burhan-staging-golden
+    rules:
+      # 1. Worker heartbeat stale (brief: heartbeat > 120s). The metric is the
+      #    age of the freshest row in worker_heartbeats per (institution,
+      #    role), SQL-clock computed at scrape time from the R08 source of
+      #    truth. A stopped worker's row freezes, so its age grows until the
+      #    alert fires ~120s after the last heartbeat.
+      - alert: BurhanWorkerHeartbeatStale
+        expr: burhan_worker_heartbeat_age_seconds > 120
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: >-
+            Worker heartbeat stale >120s ({{ $labels.role }},
+            {{ $labels.institution }})
+          description: >-
+            No heartbeat row refresh for worker role {{ $labels.role }} in
+            institution {{ $labels.institution }} for more than 120 seconds —
+            the worker process is likely down (docker stop / crash).
+          runbook: docs/runbooks/alert-worker-heartbeat.md
+
+      # 2. Oldest outbox event stuck in the delivery pipeline (brief:
+      #    outbox > 300s). PENDING/PROCESSING rows are the anchor worker's
+      #    pipeline (R08); an old row means anchoring stalled.
+      - alert: BurhanOutboxOldestPendingStale
+        expr: burhan_outbox_oldest_pending_age_seconds > 300
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: >-
+            Oldest outbox event pending >300s ({{ $labels.institution }})
+          description: >-
+            The oldest outbox event in PENDING/PROCESSING for institution
+            {{ $labels.institution }} is older than 300 seconds — the anchor
+            delivery pipeline is not draining (worker down, lease stuck, or
+            chain submission failures).
+          runbook: docs/runbooks/alert-outbox-stalled.md
+
+      # 3. HTTP 5xx ratio above 1% (brief: 5xx > 1%) over a 5m window.
+      - alert: BurhanHTTP5xxRatioHigh
+        expr: >-
+          sum(rate(burhan_http_responses_total{code=~"5.."}[5m]))
+          / sum(rate(burhan_http_responses_total[5m])) > 0.01
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: HTTP 5xx ratio above 1% over 5 minutes
+          description: >-
+            More than 1% of engine responses are 5xx over the last 5 minutes
+            (5m rate, all route templates). Inspect burhan_http_responses_total
+            by path/code; the engine logs unhandled tracebacks to
+            unhandled-exceptions.log.
+          runbook: docs/runbooks/alert-http-5xx.md
+
+      # 4. Repeated readiness failures (brief: readiness 503 repeated): 3 or
+      #    more 503s from /ready (or /startup) within 5 minutes.
+      - alert: BurhanReadinessRepeated503
+        expr: increase(burhan_readiness_failures_total[5m]) >= 3
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: Readiness endpoint returned 503 three or more times in 5m
+          description: >-
+            /health/ready (or /startup) answered 503 repeatedly — a required
+            subsystem (database, migrations, KMS/vault, EVM RPC, ML, policy)
+            is degraded. The 503 body carries explicit diagnostic reasons.
+          runbook: docs/runbooks/alert-readiness-503.md

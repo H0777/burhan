@@ -1,0 +1,53 @@
+# ops/monitoring/docker-compose.monitoring.yml (H07) — observability override,
+# owned by H07. H05 owns docker-compose.staging.yml; H06 owns
+# docker-compose.kms.yml; this file adds TWO NEW SERVICES and touches nothing
+# else (no merge into existing service definitions).
+#
+# Stack ON TOP of the H04 base (same project → same default network, which is
+# how Prometheus reaches `ai-engine:8000/internal/metrics`):
+#
+#   docker compose --env-file infra/staging/.env ^
+#     -f infra/staging/docker-compose.staging.yml ^
+#     -f ops/monitoring/docker-compose.monitoring.yml up -d prometheus grafana
+#
+# Port policy (staging convention): loopback-only host ports — Prometheus
+# 127.0.0.1:19090, Grafana 127.0.0.1:18300. Nothing on 0.0.0.0.
+#
+# Secrets policy: Grafana admin credentials are interpolated from the
+# gitignored infra/staging/.env and fail fast when missing — no credential is
+# committed.
+#
+# Provisioning-as-code: dashboards live in ops/monitoring/dashboards/*.json,
+# datasource + dashboard providers in ops/monitoring/grafana/ — Grafana picks
+# them up at start; no manual UI configuration is required or recorded.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.4
+    container_name: aml_staging_prometheus
+    volumes:
+      - ../../ops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../ops/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "127.0.0.1:19090:9090"   # loopback-only: operator + alert inspection
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: aml_staging_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${STAGING_GRAFANA_ADMIN_USER:?set STAGING_GRAFANA_ADMIN_USER in infra/staging/.env}
+      GF_SECURITY_ADMIN_PASSWORD: ${STAGING_GRAFANA_ADMIN_PASSWORD:?set STAGING_GRAFANA_ADMIN_PASSWORD in infra/staging/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ../../ops/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../ops/monitoring/dashboards:/var/lib/grafana/dashboards:ro
+      - staging_grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:18300:3000"   # loopback-only: operator dashboards
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  staging_grafana_data:

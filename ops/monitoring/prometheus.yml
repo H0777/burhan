@@ -1,0 +1,33 @@
+# ops/monitoring/prometheus.yml (H07) — Burhan staging Prometheus config.
+#
+# Scrapes the staging engine's internal metrics endpoint over the compose
+# internal network (the engine publishes NO host port; /internal/metrics is
+# only reachable from inside the stack). 5s scrape + 5s rule evaluation keep
+# the alert detection lag far below the alert windows in alerts.yml.
+#
+# Loaded by ops/monitoring/docker-compose.monitoring.yml (stacked ON TOP of
+# infra/staging/docker-compose.staging.yml):
+#   docker compose --env-file infra/staging/.env ^
+#     -f infra/staging/docker-compose.staging.yml ^
+#     -f ops/monitoring/docker-compose.monitoring.yml up -d prometheus grafana
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # Prometheus self-monitoring (up metric for itself).
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # The AI engine: DB-sourced gauges (worker heartbeats, oldest outbox age,
+  # confirmation depth) are sampled from the R08 sources of truth at scrape
+  # time; HTTP counters come from the no-PII middleware (route templates only).
+  - job_name: ai-engine
+    metrics_path: /internal/metrics
+    static_configs:
+      - targets: ["ai-engine:8000"]
