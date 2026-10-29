@@ -435,6 +435,7 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
     if (![200, 201].includes(uploadRes.status())) {
       console.log(
         "[diag] import upload status:", uploadRes.status(),
+        "headers:", JSON.stringify(uploadRes.headersArray()),
         "body:", (await uploadRes.text()).slice(0, 2000)
       );
     }
