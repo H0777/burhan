@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
 
-from app.db.session import get_db, tenant_transaction
+from app.db.session import get_db, tenant_transaction, apply_tenant_context
 from app.db.models import ReportRecord
 from app.schemas.identity import Identity, RoleEnum
 from app.schemas.report import (
@@ -71,6 +71,10 @@ def list_case_reports_endpoint(
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
 ):
+    # H04 (PostgreSQL/RLS): reads need the transaction-local tenant context —
+    # without it the app role sees nothing under FORCE RLS (invisible on
+    # SQLite). Session closes (rollback) in get_db; the context never leaks.
+    apply_tenant_context(db, identity.institution_id)
     records = db.execute(
         select(ReportRecord).where(
             ReportRecord.institution_id == identity.institution_id,
@@ -113,6 +117,8 @@ def get_case_report_endpoint(
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
 ):
+    # H04 (PostgreSQL/RLS): see list_case_reports_endpoint.
+    apply_tenant_context(db, identity.institution_id)
     rec = db.execute(
         select(ReportRecord).where(
             ReportRecord.institution_id == identity.institution_id,
@@ -155,6 +161,8 @@ def export_case_report_bundle_endpoint(
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
 ):
+    # H04 (PostgreSQL/RLS): the export service reads report + evidence rows.
+    apply_tenant_context(db, identity.institution_id)
     try:
         zip_stream = _export_service.export_report_bundle(
             session=db,

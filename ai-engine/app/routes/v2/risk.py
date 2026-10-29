@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
 
-from app.db.session import get_db, tenant_transaction
+from app.db.session import get_db, tenant_transaction, apply_tenant_context
 from app.db.models import AssessmentRecord
 from app.schemas.identity import Identity, RoleEnum
 from app.schemas.assessment import (
@@ -73,6 +73,9 @@ def preview_transaction_endpoint(
     """
     Simulates compliance risk evaluation for a transaction without persisting an AssessmentRecord.
     """
+    # H04 (PostgreSQL/RLS): preview reads the transaction row — needs the
+    # transaction-local tenant context under FORCE RLS (invisible on SQLite).
+    apply_tenant_context(db, identity.institution_id)
     try:
         return _assessment_service.assess_transaction(
             session=db,
@@ -100,6 +103,8 @@ def get_transaction_assessments(
     """
     Retrieves all historical assessment snapshots for a given transaction.
     """
+    # H04 (PostgreSQL/RLS): see preview_transaction_endpoint.
+    apply_tenant_context(db, identity.institution_id)
     records = db.execute(
         select(AssessmentRecord).where(
             AssessmentRecord.institution_id == identity.institution_id,

@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.session import get_db, tenant_transaction
+from app.db.session import get_db, tenant_transaction, apply_tenant_context
 from app.schemas.identity import Identity
 from app.schemas.evidence import EvidenceVerificationRequest, EvidenceVerificationResult
 from app.services.evidence_verifier import verify_evidence
@@ -210,6 +210,9 @@ async def get_evidence_endpoint(
     identity: Identity = Depends(get_current_identity),
     db: Session = Depends(get_db),
 ):
+    # H04 (PostgreSQL/RLS): metadata + anchor reads need the transaction-local
+    # tenant context under FORCE RLS (invisible on SQLite).
+    apply_tenant_context(db, identity.institution_id)
     obj = evidence_repository.get_evidence_object(
         session=db,
         institution_id=identity.institution_id,
@@ -261,6 +264,9 @@ async def download_evidence_endpoint(
     db: Session = Depends(get_db),
     store: EvidenceStore = Depends(get_evidence_store),
 ):
+    # H04 (PostgreSQL/RLS): the metadata lookup needs the transaction-local
+    # tenant context under FORCE RLS; the vault stream itself is file-based.
+    apply_tenant_context(db, identity.institution_id)
     obj = evidence_repository.get_evidence_object(
         session=db,
         institution_id=identity.institution_id,

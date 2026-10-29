@@ -18,7 +18,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 from sqlalchemy import select, desc, func
 
-from app.db.session import get_db, tenant_transaction
+from app.db.session import get_db, tenant_transaction, apply_tenant_context
 from app.db.models import TransactionRecord, ImportBatchRecord
 from app.schemas.identity import Identity, RoleEnum
 from app.schemas.transactions import (
@@ -93,6 +93,14 @@ def list_transactions(
     db: Session = Depends(get_db),
 ):
     institution_id = identity.institution_id
+
+    # H04 (PostgreSQL/RLS): read-model queries must run inside the
+    # transaction-local tenant context — without it the least-privilege app role
+    # sees nothing under FORCE RLS (invisible on SQLite). The import write path
+    # already used tenant_transaction; this read path did not — found by the E2E
+    # trust-flow suite against the staging PostgreSQL (test 1.5). The request
+    # session closes (rollback) in get_db, so the context never leaks.
+    apply_tenant_context(db, institution_id)
 
     query = select(TransactionRecord).where(
         TransactionRecord.institution_id == institution_id
