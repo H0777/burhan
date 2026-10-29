@@ -207,6 +207,13 @@ async function main() {
     },
   });
 
+  if (testResult.status !== 0 && apiLogs) {
+    // Engine stderr (uvicorn tracebacks, import 500s) accumulates in apiLogs
+    // but is only printed on startup failure — surface the tail on ANY suite
+    // failure so server-side errors are diagnosable from CI logs alone.
+    console.error('[FastAPI engine log tail]:\n', apiLogs.slice(-6000));
+  }
+
   cleanup();
   console.log('====================================================');
   console.log(`Integration Test Result: ${testResult.status === 0 ? 'PASSED (0)' : 'FAILED (' + testResult.status + ')'}`);
