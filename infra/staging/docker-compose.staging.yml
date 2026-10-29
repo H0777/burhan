@@ -141,7 +141,7 @@ services:
       PGPASSWORD: ${STAGING_MIGRATOR_PASSWORD:?}
     command: >-
       psql -h postgres -U ira_aml_migrator -d iraq_aml_staging -v ON_ERROR_STOP=1
-      -c "INSERT INTO institutions (id, name, is_active) VALUES ('${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}', 'Staging Institution', true) ON CONFLICT (id) DO NOTHING;"
+      -c "INSERT INTO institutions (id, name, is_active, created_at) VALUES ('${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}', 'Staging Institution', true, now()) ON CONFLICT (id) DO NOTHING;"
     depends_on:
       db-migrate:
         condition: service_completed_successfully
