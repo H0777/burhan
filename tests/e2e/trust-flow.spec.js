@@ -430,6 +430,14 @@ test.describe("Full Trust Flow and G1 Gate Integration Suite", () => {
       },
     });
 
+    // CI diagnostics: the Linux runner's failure reason is not visible in
+    // engine stderr — surface the actual status + body on the failure path.
+    if (![200, 201].includes(uploadRes.status())) {
+      console.log(
+        "[diag] import upload status:", uploadRes.status(),
+        "body:", (await uploadRes.text()).slice(0, 2000)
+      );
+    }
     expect([200, 201]).toContain(uploadRes.status());
     const uploadData = await uploadRes.json();
     expect(uploadData.status).toBe("COMPLETED");
