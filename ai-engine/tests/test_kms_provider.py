@@ -231,6 +231,83 @@ def test_vault_backed_signing_verifies_against_public_key(provider):
         pub.verify(sig, payload + b"x")
 
 
+def test_r05_r06_call_sites_end_to_end(provider):
+    """The REAL R05/R06 call sites through the KMS provider: Signer signs via
+    the Vault delegate; encrypt_bytes/decrypt_bytes wrap/unwrap via Transit;
+    the wrong tenant fails closed at the R06 surface."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    from app.security.signing import (
+        DOMAIN_SERVICE_MANIFEST,
+        Signer,
+        verify_payload_bytes,
+    )
+    from app.services.encrypted_object import (
+        InvalidCiphertextError,
+        MissingKeyMaterialError,
+        decrypt_bytes,
+        encrypt_bytes,
+    )
+
+    prov, inst_a, inst_b = provider
+
+    # --- R05: the broker's Signer over the KMS provider -------------------
+    signer = Signer(prov)
+    body = {
+        "institution_id": inst_a,
+        "key_id": prov.get_current_key_id(inst_a),
+        "note_ar": "بيانات مؤسسية",
+        "n": 7,
+    }
+    envelope = signer.sign(inst_a, DOMAIN_SERVICE_MANIFEST, body)
+    assert envelope.algorithm == "Ed25519"
+
+    # verification is public-material-only: the Vault public key (registry
+    # format) verifies the envelope WITHOUT any private key in-process
+    pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(prov.public_key_b64(inst_a, "k1")))
+    assert verify_payload_bytes(pub, DOMAIN_SERVICE_MANIFEST, envelope.body, envelope.signature)
+
+    # --- R06: encrypted evidence objects through the KMS ------------------
+    meta = encrypt_bytes(
+        b"evidence-object-bytes",
+        institution_id=inst_a,
+        evidence_id="ev_h06",
+        object_version=1,
+        key_provider=prov,
+    )
+    assert meta["encryption_key_id"] == "k1"
+    plaintext = decrypt_bytes(
+        meta["ciphertext"],
+        nonce=base64.b64decode(meta["nonce"]),
+        auth_tag=base64.b64decode(meta["auth_tag"]),
+        wrapped_dek=meta["wrapped_dek"],
+        institution_id=inst_a,
+        evidence_id="ev_h06",
+        object_version=1,
+        key_provider=prov,
+    )
+    assert plaintext == b"evidence-object-bytes"
+
+    # the wrapped DEK rides in metadata as a JSON-safe dict, exactly as stored
+    import json as _json
+
+    restored = _json.loads(_json.dumps(meta["wrapped_dek"]))
+    assert prov.unwrap_data_key(inst_a, restored) == prov.unwrap_data_key(inst_a, meta["wrapped_dek"])
+
+    # --- wrong tenant at the R06 surface -> fail-closed error mapping -----
+    with pytest.raises((MissingKeyMaterialError, InvalidCiphertextError)):
+        decrypt_bytes(
+            meta["ciphertext"],
+            nonce=base64.b64decode(meta["nonce"]),
+            auth_tag=base64.b64decode(meta["auth_tag"]),
+            wrapped_dek=meta["wrapped_dek"],
+            institution_id=inst_b,
+            evidence_id="ev_h06",
+            object_version=1,
+            key_provider=prov,
+        )
+
+
 def test_unknown_keys_fail_closed(provider):
     prov, inst_a, _ = provider
     with pytest.raises(KeyError):
