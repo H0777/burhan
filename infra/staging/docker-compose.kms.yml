@@ -1,0 +1,48 @@
+# infra/staging/docker-compose.kms.yml (H06) — KMS override, owned by H06.
+#
+# Stacks ON TOP of the H04 base compose; this file is H06's alone (H05 owns
+# docker-compose.staging.yml). Start the staging stack WITH the KMS:
+#
+#   docker compose --env-file infra/staging/.env ^
+#     -f infra/staging/docker-compose.staging.yml ^
+#     -f infra/staging/docker-compose.kms.yml up -d
+#
+# Additions:
+#   * `vault` — HashiCorp Vault 1.18 DEV MODE (HONEST DISCLOSURE): in-memory
+#     storage, no seal, single root token. Acceptable for staging ONLY; the
+#     production deployment buys a managed KMS (AWS KMS / Azure Key Vault) or
+#     a sealed, replicated Vault cluster behind the SAME KeyProvider ABC (the
+#     interface is the deliverable — see ops/key-ceremony.md).
+#   * `engine` gains opt-in KMS wiring (environment merge). The engine stays
+#     fully functional WITHOUT this override (key-providerless = fail-closed
+#     for signing/wrapping operations, exactly as H04 left it).
+#
+# Port policy: Vault publishes ONLY on 127.0.0.1:18200 (operator + test-runner
+# access). Nothing on 0.0.0.0. In-cluster services reach it as `vault:8200`.
+#
+# Secrets policy: the dev root token is interpolated from the gitignored
+# infra/staging/.env (STAGING_VAULT_DEV_ROOT_TOKEN_ID) and fails fast when
+# missing — no credential is ever committed.
+
+services:
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: aml_staging_vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${STAGING_VAULT_DEV_ROOT_TOKEN_ID:?set STAGING_VAULT_DEV_ROOT_TOKEN_ID in infra/staging/.env}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_LOG_LEVEL: warn
+    command: server -dev
+    ports:
+      - "127.0.0.1:18200:8200"
+    restart: unless-stopped
+
+  # Opt-in engine wiring (environment merge with the base service definition).
+  ai-engine:
+    environment:
+      KEY_PROVIDER: "vault"
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: ${STAGING_VAULT_DEV_ROOT_TOKEN_ID:?set STAGING_VAULT_DEV_ROOT_TOKEN_ID in infra/staging/.env}
+      KMS_CURRENT_KEYS: ${STAGING_KMS_CURRENT_KEYS:-{}}
