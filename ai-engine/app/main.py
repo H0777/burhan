@@ -6,7 +6,7 @@ Integrating Digital Forensics and Financial Accounting
 Main entry point for the AI-driven fraud detection and forensic reporting engine.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -63,6 +63,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _log_unhandled_exceptions(request: Request, call_next):
+    """Log unhandled exception tracebacks to a file next to the process CWD.
+
+    Uvicorn's own ASGI error logging can be lost when the engine is spawned
+    with piped stdio (integration runner); the file survives and the
+    integration runner prints it on suite failure.
+    """
+    try:
+        return await call_next(request)
+    except Exception:
+        import logging
+        import traceback
+
+        logging.getLogger("uvicorn.error").exception(
+            "Unhandled exception while handling %s %s",
+            request.method,
+            request.url.path,
+        )
+        try:
+            with open("unhandled-exceptions.log", "a", encoding="utf-8") as fh:
+                fh.write(f"\n=== {request.method} {request.url.path} ===\n")
+                fh.write(traceback.format_exc())
+        except OSError:
+            pass
+        raise
 
 # Mount route modules
 app.include_router(risk_scoring.router, prefix="/api/v1/risk", tags=["Risk Scoring"])

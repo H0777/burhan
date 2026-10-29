@@ -210,11 +210,18 @@ async function main() {
     },
   });
 
-  if (testResult.status !== 0 && apiLogs) {
+  if (testResult.status !== 0) {
     // Engine stderr (uvicorn tracebacks, import 500s) accumulates in apiLogs
     // but is only printed on startup failure — surface the tail on ANY suite
     // failure so server-side errors are diagnosable from CI logs alone.
-    console.error('[FastAPI engine log tail]:\n', apiLogs.slice(-6000));
+    if (apiLogs) {
+      console.error('[FastAPI engine log tail]:\n', apiLogs.slice(-6000));
+    }
+    // The engine's exception middleware writes unhandled tracebacks here:
+    const excLog = path.join(ROOT_DIR, 'unhandled-exceptions.log');
+    if (fs.existsSync(excLog)) {
+      console.error('[FastAPI unhandled-exceptions.log]:\n', fs.readFileSync(excLog, 'utf-8').slice(-6000));
+    }
   }
 
   cleanup();
