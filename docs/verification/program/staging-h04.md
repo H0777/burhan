@@ -274,10 +274,13 @@ Result: PASSED (0), RUNNER-EXIT=0** — no regression on the existing path.
 The staging/E2E deploys regenerate two TRACKED files in the working tree:
 `deployments/deployment-manifest.json` and `frontend/public/runtime-config.json`
 (the deployer owns them; they describe the CURRENT deployment). They were
-restored with `git restore` at the end of validation — the running containers
-hold the manifest in memory, and any full `down && up` re-runs the deployer
-which regenerates both files. The working tree is clean; nothing generated was
-committed. Root `package-lock.json` (npm side-effect) also restored.
+restored with `git restore` after validation — the running containers hold the
+manifest in memory. NOTE (observed live): any later `docker compose up` that
+recreates the one-shot services re-runs the staging deployer and regenerates
+both files with the fresh deployment — restore again with `git restore` (never
+commit deploy output; the tracked copies are reference artifacts). The working
+tree is clean at handoff; root `package-lock.json` (npm side-effect) also
+restored.
 
 ## 10. Acceptance criteria vs reality
 
