@@ -21,7 +21,11 @@ module.exports = {
       allowUnlimitedContractSize: false
     },
     localhost: {
-      url: "http://127.0.0.1:8545",
+      // H04 staging: LOCALHOST_RPC_URL retargets deploy/E2E at the staging EVM
+      // (http://hardhat-node:8545 from the staging deployer container;
+      // http://127.0.0.1:18545 for the host integration runner). Unset ->
+      // unchanged default below.
+      url: process.env.LOCALHOST_RPC_URL || "http://127.0.0.1:8545",
       chainId: 31337,
       allowUnlimitedContractSize: false
     },
