@@ -109,6 +109,11 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - DATABASE_URL=postgresql+psycopg://audit_admin:audit_admin_secret@postgres:5432/cyber_audit
       - EVIDENCE_STORE_PATH=/app/data/evidence
+    volumes:
+      # app/security/signing.py loads shared/python/evidence_crypto.py by walking
+      # up from its own location — the engine build context (ai-engine only) does
+      # not contain shared/, so bind it read-only exactly like the staging engine.
+      - ./shared:/app/shared:ro
     depends_on:
       hardhat-node:
         condition: service_healthy
