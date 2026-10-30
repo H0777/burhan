@@ -69,6 +69,8 @@ REM  Checking /etc/prometheus/alerts.yml
 REM    SUCCESS: 4 rules found                              EXITCODE=0
 
 docker cp ops/monitoring/tests aml_staging_prometheus:/tmp/h07-tests
+docker cp ops/monitoring/alerts.yml aml_staging_prometheus:/tmp/h07-tests/alerts.yml
+REM  rule_files in alerts_test.yml resolves to /tmp/h07-tests/alerts.yml
 docker exec aml_staging_prometheus promtool test rules /tmp/h07-tests/alerts_test.yml
 REM    Unit Testing:  /tmp/h07-tests/alerts_test.yml
 REM      SUCCESS                                              EXITCODE=0
