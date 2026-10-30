@@ -32,6 +32,9 @@ services:
       - /app/node_modules
     environment:
       - BLOCKCHAIN_RPC_URL=http://hardhat-node:8545
+      # hardhat.config.js's "localhost" network reads LOCALHOST_RPC_URL —
+      # without it hardhat dials 127.0.0.1:8545 INSIDE this container (dead).
+      - LOCALHOST_RPC_URL=http://hardhat-node:8545
       - INSTITUTION_ID=INST-CENTRAL-DEMO
     # The anonymous node_modules volume starts EMPTY: npx must resolve hardhat
     # from a populated local node_modules (pinned by the root package-lock.json
