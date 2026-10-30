@@ -1,0 +1,41 @@
+T0=2026-10-30T06:59:47Z action=docker stop aml_staging_worker_anchor
+STOP_RETURNED=2026-10-30T06:59:50Z
+POLL=06:59:55Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=5s
+POLL=07:00:00Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=10s
+POLL=07:00:05Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=15s
+POLL=07:00:10Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=20s
+POLL=07:00:15Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=24.9s
+POLL=07:00:20Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=34.9s
+POLL=07:00:25Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=40s
+POLL=07:00:30Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=45s
+POLL=07:00:35Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=50s
+POLL=07:00:40Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=55s
+POLL=07:00:45Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=60s
+POLL=07:00:50Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=65s
+POLL=07:00:55Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=70s
+POLL=07:01:01Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=75s
+POLL=07:01:06Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=79.9s
+POLL=07:01:11Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=84.9s
+POLL=07:01:16Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=89.9s
+POLL=07:01:21Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=94.9s
+POLL=07:01:26Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=99.9s
+POLL=07:01:31Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=104.9s
+POLL=07:01:36Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=109.9s
+POLL=07:01:41Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=114.9s
+POLL=07:01:46Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=119.9s
+POLL=07:01:51Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=124.9s
+POLL=07:01:56Z api_alert=firing tsdb_firing_series=1 anchor_heartbeat_age=129.9s
+RAW_ALERTS_BODY={"status":"success","data":{"alerts":[{"labels":{"alertname":"BurhanWorkerHeartbeatStale","instance":"ai-engine:8000","institution":"INST-CENTRAL-STAGING","job":"ai-engine","role":"anchor","severity":"critical"},"annotations":{"description":"No heartbeat row refresh for worker role anchor in institution INST-CENTRAL-STAGING for more than 120 seconds — the worker process is likely down (docker stop / crash).","runbook":"docs/runbooks/alert-worker-heartbeat.md","summary":"Worker heartbeat stale >120s (anchor, INST-CENTRAL-STAGING)"},"state":"firing","activeAt":"2026-10-30T07:01:51.127768099Z","value":"1.24946689e+02"}]}}
+FIRED_AT=2026-10-30T07:01:56Z
+ACTIVE_AT=2026-10-30T07:01:51.127768099Z
+DELTA_T0_TO_FIRING_SECONDS=129.5
+DELTA_STOPRETURN_TO_FIRING_SECONDS=126.3
+RESTARTING worker_anchor
+START_RETURNED=2026-10-30T07:01:56Z
+RECOVER_POLL=07:02:01Z api_alert=firing tsdb_firing_series=1 anchor_heartbeat_age=3.3s
+RECOVER_POLL=07:02:06Z api_alert=none tsdb_firing_series=0 anchor_heartbeat_age=3.3s
+RAW_ALERTS_BODY_AFTER_RESOLVE={"status":"success","data":{"alerts":[]}}
+RESOLVED_AT=2026-10-30T07:02:06Z
+DELTA_STARTRETURN_TO_RESOLVED_SECONDS=10.1
+TSDB_FIRING_WINDOW={"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"ALERTS","alertname":"BurhanWorkerHeartbeatStale","alertstate":"firing","instance":"ai-engine:8000","institution":"INST-CENTRAL-STAGING","job":"ai-engine","role":"anchor","severity":"critical"},"values":[[1793343715,"1"],[1793343720,"1"]]}]}}
+WORKER_STATUS=aml_staging_worker_anchor Up 10 seconds
