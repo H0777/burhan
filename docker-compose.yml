@@ -157,6 +157,10 @@ services:
     environment:
       - VITE_AI_ENGINE_URL=/api
       - VITE_RPC_URL=http://localhost:${RPC_PORT:-8545}
+    volumes:
+      # Serve the live deployer-generated runtime config — the build-time
+      # copy goes stale after any redeploy and breaks on-chain calls.
+      - ./frontend/public/runtime-config.json:/usr/share/nginx/html/runtime-config.json:ro
     depends_on:
       ai-engine:
         condition: service_healthy
