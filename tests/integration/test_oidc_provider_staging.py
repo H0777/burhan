@@ -251,8 +251,13 @@ def test_identity_me_through_nginx_with_the_real_token(oidc_session):
     assert identity["issuer"] == ISSUER
     assert identity["institution_id"] == INSTITUTION_ID
     assert identity["role"] == "OPERATOR"
-    # Before the wallet bind the identity resolves with NO participant claims.
-    assert identity["participant_id"] is None
+    # On a FRESH staging DB the identity carries NO participant claims before
+    # the wallet bind; on a REUSED DB the persisted binding from a previous
+    # suite run legitimately resolves for this same (sub, institution). Either
+    # way, whenever a participant IS present it must be the operator's wallet.
+    if identity["participant_id"] is not None:
+        assert identity["wallet_address"].lower() == OPERATOR_WALLET_ADDRESS.lower()
+        assert identity["authorization_generation"] >= 1
 
 
 def test_institutional_posture_no_token_is_401_through_nginx():
