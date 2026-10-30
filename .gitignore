@@ -182,3 +182,7 @@ cyber_audit_chain.db
 .DS_Store
 Thumbs.db
 
+ai-engine/data/
+.integration-tmp/
+deployments/deployment-manifest.json
+frontend/public/runtime-config.json
