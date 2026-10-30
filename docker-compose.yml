@@ -3,7 +3,7 @@ name: cyber-audit-system
 services:
   # 1. Local Hardhat Blockchain Node (Isolated port 8545)
   hardhat-node:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: cyber_audit_evm
     working_dir: /app
     volumes:
@@ -11,18 +11,20 @@ services:
       - /app/node_modules
     ports:
       - "${RPC_PORT:-8545}:8545"
-    command: sh -c "npm install && npx hardhat node --hostname 0.0.0.0"
+    command: sh -c "npm ci && npx hardhat node --hostname 0.0.0.0"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "8545"]
+      # node is guaranteed in this image; nc is missing from node:24-alpine
+      # and "localhost" can resolve to ::1 (IPv6) while hardhat binds IPv4.
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8545',{timeout:2000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 30
     networks:
       - cyber_audit_isolated_net
 
   # 2. Automated Contract Deployment & Bootstrap
   contract-deployer:
-    image: node:20-alpine
+    image: node:24-alpine
     container_name: cyber_audit_deployer
     working_dir: /app
     volumes:
@@ -31,10 +33,53 @@ services:
     environment:
       - BLOCKCHAIN_RPC_URL=http://hardhat-node:8545
       - INSTITUTION_ID=INST-CENTRAL-DEMO
-    command: sh -c "sleep 3 && npx hardhat run scripts/deploy.js --network localhost"
+    # The anonymous node_modules volume starts EMPTY: npx must resolve hardhat
+    # from a populated local node_modules (pinned by the root package-lock.json
+    # to hardhat 2.x) or it downloads hardhat 3.x and fails with HHE22
+    # (non-local installation). npm ci MUST run before npx.
+    command: sh -c "npm ci && npx hardhat run scripts/deploy.js --network localhost"
     depends_on:
       hardhat-node:
         condition: service_healthy
+    networks:
+      - cyber_audit_isolated_net
+
+  # 3a. One-shot schema migration (R11: migrations own the PostgreSQL schema —
+  # the engine NEVER runs create_all on PostgreSQL). Fresh demo volumes start
+  # with NO tables; the engine swallows that startup failure as a "note" and
+  # readiness stays 503, so the schema MUST be migrated before the engine boots.
+  db-migrate:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    image: cyber-audit-ai-engine:demo
+    container_name: cyber_audit_db_migrate
+    environment:
+      - MIGRATION_DATABASE_URL=postgresql+psycopg://audit_admin:audit_admin_secret@postgres:5432/cyber_audit
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cyber_audit_isolated_net
+
+  # 3b. One-shot demo seed: the institutions row for the demo tenant
+  # (INST-CENTRAL-DEMO). The engine's built-in demo seed is confined to the
+  # SQLite dev path (R11); on PostgreSQL demo the FK target must be seeded
+  # explicitly. Idempotent: inserts only when missing.
+  db-seed:
+    build:
+      context: ./ai-engine
+      dockerfile: Dockerfile
+    image: cyber-audit-ai-engine:demo
+    container_name: cyber_audit_db_seed
+    environment:
+      - DATABASE_URL=postgresql+psycopg://audit_admin:audit_admin_secret@postgres:5432/cyber_audit
+      - INSTITUTION_ID=INST-CENTRAL-DEMO
+    command: ["python", "scripts/demo_seed.py"]
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
     networks:
       - cyber_audit_isolated_net
 
@@ -43,6 +88,7 @@ services:
     build:
       context: ./ai-engine
       dockerfile: Dockerfile
+    image: cyber-audit-ai-engine:demo
     container_name: cyber_audit_ai
     ports:
       - "${AI_PORT:-8005}:8000"
@@ -64,6 +110,8 @@ services:
       hardhat-node:
         condition: service_healthy
       contract-deployer:
+        condition: service_completed_successfully
+      db-seed:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
