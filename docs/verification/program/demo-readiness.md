@@ -173,3 +173,17 @@ migration/owner role workflow, never `create_all` (R11).
 ## التشغيل عبر GitHub Actions
 
 Action يدوي: **Demo Stack Smoke (manual)** في تبويب Actions → Run workflow — يبني الديمو من checkout نظيف، يشغل السلسلة كاملة (نشر+مهاجرة+بذر)، ويتحقق: ready عبر المنفذين + استيراد CSV 201 + صفوف مرئية، ويرفع الأدلة كـartifact. العدّاء مؤقت — لتصفح الواجهة من متصفحك: شغلها محلياً (`docker compose up -d`) أو استخدم self-hosted runner.
+
+## DEMO badge (H14, runtime-driven)
+
+The frontend shows a slim amber banner — `DEMO — نسخة تجريبية (بيانات وشبكة محلية)` —
+fixed to the very top of the viewport whenever the **served** `/runtime-config.json`
+has `app_mode: "demo"` (the badge reads `isDemoMode()` from the R13 runtime module on
+every render — not a build-time constant). The shell reserves the banner's 24px strip
+(root `pt-6`, sticky header `top-6`), the banner is `pointer-events-none`, so nothing
+underneath is covered or blocked. In `app_mode: "institutional"` deployments the badge
+renders **nothing**, and nothing renders before the config gate resolves the config.
+Flipping a deployment between demo and institutional (new `runtime-config.json` +
+reload) flips the badge with it — component: `frontend/src/components/DemoBadge.jsx`
+(wired in `App.jsx`); tests: `DemoBadge.test.jsx` (not-loaded / demo / institutional /
+reload-flip).
