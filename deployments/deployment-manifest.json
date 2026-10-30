@@ -1,31 +1,31 @@
 {
   "manifest_version": 3,
-  "deployment_id": "0xdb9ad505f5645f1b1bbcac219c63fc18b57b5c0525a69903125e2353f3167f5f",
+  "deployment_id": "0xf01255713a1b47e710604585f90f8c776458b3ed58d8c50df18894082c104da2",
   "institution_id": "INST-CENTRAL-DEMO",
   "chain_id": 31337,
   "network": "localhost",
   "contract_version": "2.1.0",
   "status": "active",
-  "deployed_at": "2026-10-26T15:14:32.905Z",
-  "deployed_at_block": 9,
+  "deployed_at": "2026-10-30T10:49:10.132Z",
+  "deployed_at_block": 18,
   "confirmation_depth": 2,
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "bootstrap_finalized": true,
   "addresses": {
-    "RoleManager": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    "InsiderActivityLog": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    "ForensicTrail": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-    "ComplianceRules": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
-    "MultiSigApproval": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "AuditEngine": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+    "RoleManager": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+    "InsiderActivityLog": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e",
+    "ForensicTrail": "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0",
+    "ComplianceRules": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
+    "MultiSigApproval": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+    "AuditEngine": "0x9A676e781A523b5d0C0e43731313A708CB607508"
   },
   "deployed_code_hashes": {
-    "RoleManager": "0x06a1c64e52acec459323ad51992613e165a2ba104d837d17aa4df002b791dfa7",
-    "InsiderActivityLog": "0x033f0e0d2452c02c8fd65423dbf96eae808a5f18a4b313dce1a8b194e4219dea",
-    "ForensicTrail": "0x054f92010ed75f493f3603239890dab656d8fd2736600a502697a57e1cf1b6ba",
+    "RoleManager": "0xbd3003d859500730abcfa0d9f3d49da1460f44a7892c3faefebfb23ddfe6b415",
+    "InsiderActivityLog": "0x8417aecef48651db212f188c48de921a865b995aa646665ee2e495b1f100d126",
+    "ForensicTrail": "0x887803b53ccf560a0531f110c0ed3c0adabaa4f89767f7f728de0acaaa712aaf",
     "ComplianceRules": "0xa24e26cbab9b95f1238f7fb4e0cbb4d579f8bae180300512a5093853ddb08e08",
-    "MultiSigApproval": "0xb62e249831c5fca9783445569051657c97810c0525714c8c295b6744d87fb092",
-    "AuditEngine": "0xc576ee9c478639fd42f549db496c9eb24d469ac0c91ed928448ccf7883568da9"
+    "MultiSigApproval": "0x35b738aed224ba7a3e067cad9c8a6e4b7187a02e9a4defc72eed37ee2a5a58cb",
+    "AuditEngine": "0xbd3a7fb3b6c63f2aa7cc364efdcfa90b63b32ff8f840ae552b9172c84dfa0e41"
   },
   "governance": {
     "required_approvals": 2,
