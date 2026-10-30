@@ -1,0 +1,100 @@
+name: Demo Stack Smoke (manual)
+
+# Runs the FULL demo stack (EVM + contracts + PostgreSQL + engine + frontend)
+# from a clean checkout, waits for the deployment/migration/seed chain, and
+# validates the end-to-end demo flow via the frontend /api proxy.
+#
+# Note: GitHub-hosted runners are ephemeral — this proves the demo works from
+# a clean checkout and publishes evidence; to browse the demo UI, run
+# `docker compose up -d` locally (docs/verification/program/demo-readiness.md)
+# or dispatch this workflow on a self-hosted runner and port-forward :3005.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: demo-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  demo-smoke:
+    name: Demo Stack End-to-End Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Boot demo stack (build + deploy + migrate + seed)
+        run: docker compose up -d --build
+
+      - name: Wait for EVM node healthy
+        run: |
+          for i in $(seq 1 90); do
+            st=$(docker inspect -f '{{.State.Health.Status}}' cyber_audit_evm 2>/dev/null || echo starting)
+            echo "evm: $st"
+            [ "$st" = "healthy" ] && exit 0
+            sleep 5
+          done
+          docker logs cyber_audit_evm --tail 100
+          exit 1
+
+      - name: Wait for contract deployer to succeed (manifest v3)
+        run: |
+          for i in $(seq 1 90); do
+            st=$(docker inspect -f '{{.State.Status}}/{{.State.ExitCode}}' cyber_audit_deployer 2>/dev/null || echo running/0)
+            echo "deployer: $st"
+            case "$st" in
+              exited/0) docker logs cyber_audit_deployer --tail 15; exit 0 ;;
+              exited*)  docker logs cyber_audit_deployer --tail 60; exit 1 ;;
+            esac
+            sleep 5
+          done
+          docker logs cyber_audit_deployer --tail 60
+          exit 1
+
+      - name: Wait for engine readiness on :8005 and via frontend proxy :3005
+        run: |
+          ok=0
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8005/api/v2/health/ready >/dev/null 2>&1 \
+               && curl -fsS http://127.0.0.1:3005/api/v2/health/ready >/dev/null 2>&1; then
+              ok=1; break
+            fi
+            sleep 5
+          done
+          [ "$ok" = "1" ] || { docker logs cyber_audit_ai --tail 100; exit 1; }
+
+      - name: Demo smoke — serve runtime config of the LIVE deployment
+        run: |
+          curl -fsS http://127.0.0.1:3005/runtime-config.json | tee runtime-config-served.json
+          node -e "const c=require('./runtime-config-served.json');if(c.app_mode!=='demo'||!c.contracts.AuditEngine)process.exit(1)"
+
+      - name: Demo smoke — CSV import via frontend proxy + rows visible
+        run: |
+          code=$(curl -s -o import.json -w '%{http_code}' \
+            -F "file=@shared/fixtures/banking-iqd-demo.csv;type=text/csv" \
+            http://127.0.0.1:3005/api/v2/imports/transactions)
+          echo "import status: $code"
+          cat import.json
+          [ "$code" = "201" ] || [ "$code" = "200" ] || exit 1
+          curl -fsS "http://127.0.0.1:3005/api/v2/transactions?limit=10" | grep -q "TX-IQD-2026-0001"
+
+      - name: Upload demo evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-smoke-evidence
+          path: |
+            runtime-config-served.json
+            import.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Tear down demo stack
+        if: always()
+        run: docker compose down -v

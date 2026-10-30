@@ -168,3 +168,8 @@ migration/owner role workflow, never `create_all` (R11).
   compose state on plain `docker compose up` restarts).
 - Frontend asset build warns about a >500 kB chunk (pre-existing vite warning,
   cosmetic; build succeeds).
+
+
+## التشغيل عبر GitHub Actions
+
+Action يدوي: **Demo Stack Smoke (manual)** في تبويب Actions → Run workflow — يبني الديمو من checkout نظيف، يشغل السلسلة كاملة (نشر+مهاجرة+بذر)، ويتحقق: ready عبر المنفذين + استيراد CSV 201 + صفوف مرئية، ويرفع الأدلة كـartifact. العدّاء مؤقت — لتصفح الواجهة من متصفحك: شغلها محلياً (`docker compose up -d`) أو استخدم self-hosted runner.
