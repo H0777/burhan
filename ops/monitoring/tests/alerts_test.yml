@@ -1,0 +1,95 @@
+# H07 promtool unit test — replays the EXACT series observed during the
+# 2026-10-29 staging dependency-failure test (anchor heartbeat age rising
+# 1s/s past the 120s threshold) and asserts the alert fires.
+#
+# Run inside the prometheus container:
+#   docker cp ops/monitoring/tests aml_staging_prometheus:/tmp/h07-tests
+#   docker exec aml_staging_prometheus promtool test rules /tmp/h07-tests/alerts_test.yml
+rule_files:
+  - /tmp/h07-tests/alerts.yml
+
+evaluation_interval: 5s
+
+tests:
+  - interval: 5s
+    input_series:
+      # Observed live: last heartbeat ~T0, age grows 1s/s after docker stop.
+      - series: 'burhan_worker_heartbeat_age_seconds{instance="ai-engine:8000",job="ai-engine",institution="INST-CENTRAL-STAGING",role="anchor"}'
+        values: '0+5x60'          # 0..300 over 5 minutes
+      # Indexer stays fresh the whole time.
+      - series: 'burhan_worker_heartbeat_age_seconds{instance="ai-engine:8000",job="ai-engine",institution="INST-CENTRAL-STAGING",role="indexer"}'
+        values: '1+0x60'
+
+    alert_rule_test:
+      # 120s threshold crossed at t=2m (age=120); for:0m fires same eval.
+      - eval_time: 115s
+        alertname: BurhanWorkerHeartbeatStale
+        exp_alerts: []
+      - eval_time: 125s
+        alertname: BurhanWorkerHeartbeatStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: ai-engine:8000
+              job: ai-engine
+              institution: INST-CENTRAL-STAGING
+              role: anchor
+            exp_annotations:
+              summary: "Worker heartbeat stale >120s (anchor, INST-CENTRAL-STAGING)"
+              description: "No heartbeat row refresh for worker role anchor in institution INST-CENTRAL-STAGING for more than 120 seconds — the worker process is likely down (docker stop / crash)."
+              runbook: docs/runbooks/alert-worker-heartbeat.md
+
+      # 5xx ratio alert over a synthetic 2% window.
+  - interval: 5s
+    input_series:
+      - series: 'burhan_http_responses_total{instance="ai-engine:8000",job="ai-engine",method="POST",path="/api/v2/evidence/upload",code="500"}'
+        values: '0+3x120'
+      - series: 'burhan_http_responses_total{instance="ai-engine:8000",job="ai-engine",method="POST",path="/api/v2/evidence/upload",code="200"}'
+        values: '0+97x120'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: BurhanHTTP5xxRatioHigh
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "HTTP 5xx ratio above 1% over 5 minutes"
+              description: "More than 1% of engine responses are 5xx over the last 5 minutes (5m rate, all route templates). Inspect burhan_http_responses_total by path/code; the engine logs unhandled tracebacks to unhandled-exceptions.log."
+              runbook: docs/runbooks/alert-http-5xx.md
+
+      # Outbox oldest-age alert (300s threshold).
+  - interval: 5s
+    input_series:
+      - series: 'burhan_outbox_oldest_pending_age_seconds{instance="ai-engine:8000",job="ai-engine",institution="INST-CENTRAL-STAGING"}'
+        values: '0+5x80'
+    alert_rule_test:
+      - eval_time: 310s
+        alertname: BurhanOutboxOldestPendingStale
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: ai-engine:8000
+              job: ai-engine
+              institution: INST-CENTRAL-STAGING
+            exp_annotations:
+              summary: "Oldest outbox event pending >300s (INST-CENTRAL-STAGING)"
+              description: "The oldest outbox event in PENDING/PROCESSING for institution INST-CENTRAL-STAGING is older than 300 seconds — the anchor delivery pipeline is not draining (worker down, lease stuck, or chain submission failures)."
+              runbook: docs/runbooks/alert-outbox-stalled.md
+
+      # Repeated readiness 503 (>=3 in 5m).
+  - interval: 5s
+    input_series:
+      - series: 'burhan_readiness_failures_total{instance="ai-engine:8000",job="ai-engine"}'
+        values: '0 0 0 1 1 1 2 2 2 3 3 3 4 4 4'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: BurhanReadinessRepeated503
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: ai-engine:8000
+              job: ai-engine
+            exp_annotations:
+              summary: "Readiness endpoint returned 503 three or more times in 5m"
+              description: "/health/ready (or /startup) answered 503 repeatedly — a required subsystem (database, migrations, KMS/vault, EVM RPC, ML, policy) is degraded. The 503 body carries explicit diagnostic reasons."
+              runbook: docs/runbooks/alert-readiness-503.md
