@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from './AuthProvider.jsx'
 import { AUTH_CALLBACK_PATH } from './oidcClient.js'
 
@@ -66,22 +66,28 @@ export function OidcCallbackHandler({ onDone }) {
   const { completeLogin } = useAuth()
   const [state, setState] = useState('processing')
 
+  // A callback URL carries a SINGLE-USE authorization code: handle it exactly
+  // once per mount. App re-renders mid-flight (isLoading flips inside
+  // completeLogin) re-create the inline onDone prop, and re-running this effect
+  // on its identity change races completeLogin against itself — the losing
+  // exchange hits the provider with the already-consumed code ("invalid_grant:
+  // Code not valid") and errors the UI, while the winning exchange's
+  // completion is swallowed by its own effect cleanup (verified live in the
+  // H05 staging E2E: two token POSTs for one login, 200 then 400).
+  const handledRef = useRef(false)
+
   useEffect(() => {
-    let isMounted = true
+    if (handledRef.current) return
+    handledRef.current = true
     const url = window.location.href
     completeLogin(url)
       .then(() => {
-        if (isMounted) {
-          setState('done')
-          onDone?.()
-        }
+        setState('done')
+        onDone?.()
       })
       .catch(() => {
-        if (isMounted) setState('error')
+        setState('error')
       })
-    return () => {
-      isMounted = false
-    }
   }, [completeLogin, onDone])
 
   return (
