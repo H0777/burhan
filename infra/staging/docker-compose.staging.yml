@@ -172,6 +172,15 @@ services:
       OIDC_JWKS_URL: ${STAGING_OIDC_JWKS_URL:-http://keycloak:8080/realms/burhan/protocol/openid-connect/certs}
       DATABASE_URL: postgresql+psycopg://ira_aml_app:${STAGING_APP_PASSWORD:?}@postgres:5432/iraq_aml_staging
       BLOCKCHAIN_RPC_URL: http://hardhat-node:8545
+      # The SIWE wallet challenges must bind the ACTUAL deployed chain id
+      # (hardhat 31337 — same value the staging runtime-config advertises to
+      # wallets); the engine default 1337 would reject every binding.
+      CHAIN_ID: ${STAGING_CHAIN_ID:-31337}
+      # H05: wallet binding proves the participant ON-CHAIN (R10) — the
+      # RoleManager the staging deployer deploys (deterministic Hardhat
+      # address, same value the staging runtime-config advertises). Without
+      # it institutional mode refuses every bind (fail-closed).
+      ROLE_MANAGER_ADDRESS: ${STAGING_ROLE_MANAGER_ADDRESS:-0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512}
       INSTITUTION_ID: ${STAGING_INSTITUTION_ID:-INST-CENTRAL-STAGING}
       DEPLOYMENT_MANIFEST_PATH: /app/deployments/deployment-manifest.json
       EVIDENCE_STORE_PATH: /app/data/evidence

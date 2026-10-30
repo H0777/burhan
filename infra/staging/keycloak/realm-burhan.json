@@ -47,19 +47,33 @@
           "protocolMapper": "oidc-audience-mapper",
           "consentRequired": false,
           "config": {
-            "included-client-audience": "iraq-aml-audit-engine",
+            "included.custom.audience": "iraq-aml-audit-engine",
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
         },
         {
-          "name": "institution_id (user attribute -> verified claim)",
+          "name": "nbf (institutional R10 mandatory claim)",
           "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
           "consentRequired": false,
           "config": {
-            "user.attribute": "institution_id",
+            "claim.name": "nbf",
+            "claim.value": "1793232000",
+            "jsonType.label": "long",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "institution_id (staging tenant routing claim)",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
             "claim.name": "institution_id",
+            "claim.value": "INST-CENTRAL-STAGING",
             "jsonType.label": "String",
             "multivalued": "false",
             "id.token.claim": "true",
