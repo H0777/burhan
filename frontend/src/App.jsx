@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { DemoBadge } from './components/DemoBadge'
+import { isDemoMode } from './config/runtime'
 import { Sidebar } from './components/Sidebar'
 import { Dashboard } from './components/Dashboard'
 import { InsiderMonitor } from './components/InsiderMonitor'
@@ -79,6 +81,13 @@ export default function App() {
   const [lang, setLang] = useState('ar')
   const isRtl = lang === 'ar'
   const t = translations[lang] || translations.ar
+
+  // H14 — DEMO badge follows the RESOLVED runtime config (R13): visible only
+  // when app_mode is "demo", never in institutional mode, nothing before the
+  // config gate in main.jsx has resolved the config. When visible, the shell
+  // reserves its 24px strip (root pt-6 / sticky header top-6) so the fixed
+  // banner never covers any UI.
+  const showDemoBadge = isDemoMode()
 
   const [currentView, setCurrentView] = useState('dashboard')
   const [aiStatus, setAiStatus] = useState(null)
@@ -283,10 +292,13 @@ export default function App() {
   return (
     <div
       className={`flex min-h-screen bg-cyber-950 text-gray-100 antialiased selection:bg-cyan-500 selection:text-black pb-12 ${
-        isRtl ? 'font-arabic' : 'font-sans'
-      }`}
+        showDemoBadge ? 'pt-6' : ''
+      } ${isRtl ? 'font-arabic' : 'font-sans'}`}
       dir={isRtl ? 'rtl' : 'ltr'}
     >
+      {/* H14 — DEMO badge (demo runtime config only; renders null otherwise) */}
+      <DemoBadge />
+
       {/* Sidebar Navigation */}
       <Sidebar
         currentView={currentView}
@@ -302,7 +314,11 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Top Command Bar & Global Header */}
-        <header className="h-16 px-6 bg-cyber-900/90 border-b border-cyber-800 flex items-center justify-between sticky top-0 z-30 backdrop-blur-md">
+        <header
+          className={`h-16 px-6 bg-cyber-900/90 border-b border-cyber-800 flex items-center justify-between sticky z-30 backdrop-blur-md ${
+            showDemoBadge ? 'top-6' : 'top-0'
+          }`}
+        >
           {/* Left Title / Scope */}
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-xs uppercase font-extrabold tracking-wider text-cyan-400 font-mono flex items-center gap-1.5 shrink-0">
